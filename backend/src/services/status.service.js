@@ -2,7 +2,7 @@ const pool = require('../db/pool');
 const { getActiveConfig } = require('./config.service');
 
 async function getSystemStatus() {
-  const [configRow, workers, recentEvents, recentDecisions] = await Promise.all([
+  const [configRow, workers, recentEvents, recentDecisions, marketSummary] = await Promise.all([
     getActiveConfig(),
     pool.query(
       `
@@ -27,6 +27,16 @@ async function getSystemStatus() {
         LIMIT 20
       `,
     ),
+    pool.query(
+      `
+        SELECT
+          (SELECT COUNT(*) FROM market_symbols) AS symbols_count,
+          (SELECT COUNT(*) FROM market_tickers) AS tickers_count,
+          (SELECT COUNT(*) FROM market_candles) AS candles_count,
+          (SELECT MAX(updated_at) FROM market_tickers) AS last_ticker_update,
+          (SELECT MAX(updated_at) FROM market_candles) AS last_candle_update
+      `,
+    ),
   ]);
 
   return {
@@ -34,6 +44,13 @@ async function getSystemStatus() {
     workers: workers.rows,
     recentEvents: recentEvents.rows,
     recentDecisions: recentDecisions.rows,
+    market: {
+      symbolsCount: Number(marketSummary.rows[0]?.symbols_count || 0),
+      tickersCount: Number(marketSummary.rows[0]?.tickers_count || 0),
+      candlesCount: Number(marketSummary.rows[0]?.candles_count || 0),
+      lastTickerUpdate: marketSummary.rows[0]?.last_ticker_update || null,
+      lastCandleUpdate: marketSummary.rows[0]?.last_candle_update || null,
+    },
     timestamp: new Date().toISOString(),
   };
 }

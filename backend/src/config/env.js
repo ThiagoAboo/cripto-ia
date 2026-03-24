@@ -19,4 +19,9 @@ module.exports = {
     password: getEnv('DB_PASSWORD', 'postgres'),
   },
   internalApiKey: getEnv('INTERNAL_API_KEY', 'troque-esta-chave'),
+  market: {
+    binanceApiBaseUrl: getEnv('BINANCE_API_BASE_URL', 'https://api.binance.com').replace(/\/$/, ''),
+    cacheTtlSec: Number(getEnv('MARKET_CACHE_TTL_SEC', 20)),
+    defaultCandleLimit: Number(getEnv('CANDLE_DEFAULT_LIMIT', 300)),
+  },
 };
