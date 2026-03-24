@@ -1,8 +1,9 @@
 const pool = require('../db/pool');
 const { getActiveConfig } = require('./config.service');
+const { getPaperSummary, listPaperOrders } = require('./portfolio.service');
 
 async function getSystemStatus() {
-  const [configRow, workers, recentEvents, recentDecisions, marketSummary] = await Promise.all([
+  const [configRow, workers, recentEvents, recentDecisions, marketSummary, portfolio, recentOrders] = await Promise.all([
     getActiveConfig(),
     pool.query(
       `
@@ -37,13 +38,20 @@ async function getSystemStatus() {
           (SELECT MAX(updated_at) FROM market_candles) AS last_candle_update
       `,
     ),
+    getPaperSummary(),
+    listPaperOrders({ limit: 20 }),
   ]);
 
   return {
     configVersion: configRow?.version ?? 0,
     workers: workers.rows,
     recentEvents: recentEvents.rows,
-    recentDecisions: recentDecisions.rows,
+    recentDecisions: recentDecisions.rows.map((row) => ({
+      ...row,
+      confidence: Number(row.confidence),
+    })),
+    recentOrders,
+    portfolio,
     market: {
       symbolsCount: Number(marketSummary.rows[0]?.symbols_count || 0),
       tickersCount: Number(marketSummary.rows[0]?.tickers_count || 0),

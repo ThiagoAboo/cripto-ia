@@ -149,6 +149,12 @@ def get_tickers(symbols: List[str], refresh: bool) -> Dict[str, Dict[str, Any]]:
     return {item["symbol"]: item for item in payload.get("items", [])}
 
 
+def get_portfolio() -> Dict[str, Any]:
+    response = requests.get(f"{BACKEND_URL}/api/portfolio", timeout=REQUEST_TIMEOUT_SEC)
+    response.raise_for_status()
+    return response.json()
+
+
 def send_heartbeat(status: str, payload: Dict[str, Any]) -> None:
     response = session.post(
         f"{BACKEND_URL}/internal/heartbeat",
@@ -175,7 +181,7 @@ def publish_event(event_type: str, payload: Dict[str, Any]) -> None:
     response.raise_for_status()
 
 
-def publish_decision(symbol: str, action: str, confidence: float, blocked: bool, reason: str, payload: Dict[str, Any]) -> None:
+def publish_decision(symbol: str, action: str, confidence: float, blocked: bool, reason: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     response = session.post(
         f"{BACKEND_URL}/internal/decisions",
         data=json.dumps({
@@ -190,6 +196,24 @@ def publish_decision(symbol: str, action: str, confidence: float, blocked: bool,
         timeout=REQUEST_TIMEOUT_SEC,
     )
     response.raise_for_status()
+    return response.json()
+
+
+def submit_paper_order(symbol: str, side: str, linked_decision_id: int, reason: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    response = session.post(
+        f"{BACKEND_URL}/internal/orders/paper",
+        data=json.dumps({
+            "workerName": WORKER_NAME,
+            "symbol": symbol,
+            "side": side,
+            "linkedDecisionId": linked_decision_id,
+            "reason": reason,
+            "payload": payload,
+        }),
+        timeout=REQUEST_TIMEOUT_SEC,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def compute_market_features(primary_candles: List[Dict[str, Any]], confirmation_candles: List[Dict[str, Any]], ticker: Dict[str, Any]) -> Dict[str, float]:
@@ -204,8 +228,11 @@ def compute_market_features(primary_candles: List[Dict[str, Any]], confirmation_
     ema_mid_series = ema(closes, 21)
     ema_slow_series = ema(closes, 50)
 
-    macd_line = ema(closes, 12)[-1] - ema(closes, 26)[-1]
-    macd_signal = ema([a - b for a, b in zip(ema(closes, 12), ema(closes, 26))], 9)[-1]
+    ema12 = ema(closes, 12)
+    ema26 = ema(closes, 26)
+    macd_series = [a - b for a, b in zip(ema12, ema26)]
+    macd_line = macd_series[-1]
+    macd_signal = ema(macd_series, 9)[-1]
     macd_hist = macd_line - macd_signal
     rsi_now = rsi(closes, 14)
     atr_now = atr(primary_candles, 14)
@@ -339,7 +366,51 @@ def regime_expert(features: Dict[str, float]) -> Dict[str, Any]:
     return {"buy": round(buy, 4), "sell": round(sell, 4), "label": label}
 
 
-def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles: List[Dict[str, Any]], ticker: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+def risk_expert(symbol: str, portfolio: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+    open_symbols = set(portfolio.get("openSymbols", []))
+    open_positions = int(portfolio.get("openPositionsCount", 0))
+    exposure_pct = float(portfolio.get("exposurePct", 0.0))
+    max_open_positions = int(config.get("trading", {}).get("maxOpenPositions", 5))
+    max_portfolio_exposure = float(config.get("risk", {}).get("maxPortfolioExposurePct", 35))
+    allow_averaging_down = bool(config.get("risk", {}).get("allowAveragingDown", False))
+    allow_multiple_entries = bool(config.get("execution", {}).get("paper", {}).get("allowMultipleEntriesPerSymbol", False))
+
+    position_exists = symbol in open_symbols
+    buy_gate = 1.0
+    sell_gate = 0.45 if position_exists else 0.80
+    notes: List[str] = []
+
+    if position_exists and not allow_multiple_entries and not allow_averaging_down:
+        buy_gate = 0.0
+        notes.append("position_already_open")
+
+    if open_positions >= max_open_positions and not position_exists:
+        buy_gate = 0.0
+        notes.append("max_open_positions_reached")
+
+    if exposure_pct >= max_portfolio_exposure:
+        buy_gate = 0.0
+        notes.append("portfolio_exposure_limit")
+
+    if position_exists:
+        sell_gate = 0.25
+        notes.append("position_can_be_reduced")
+
+    label = "risk_ok"
+    if notes:
+        label = ",".join(notes)
+
+    return {
+        "buy": round(buy_gate, 4),
+        "sell": round(sell_gate, 4),
+        "label": label,
+        "positionExists": position_exists,
+        "openPositions": open_positions,
+        "exposurePct": round(exposure_pct, 4),
+    }
+
+
+def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles: List[Dict[str, Any]], ticker: Dict[str, Any], config: Dict[str, Any], portfolio: Dict[str, Any], symbol: str) -> Dict[str, Any]:
     ai_config = config.get("ai", {})
     weights = ai_config.get("expertWeights", {})
     buy_threshold = float(ai_config.get("minConfidenceToBuy", 0.64))
@@ -353,6 +424,7 @@ def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles:
         "volatility": volatility_expert(features),
         "liquidity": liquidity_expert(features),
         "regime": regime_expert(features),
+        "risk": risk_expert(symbol, portfolio, config),
     }
 
     total_weight = sum(float(weights.get(name, 0.0)) for name in experts) or 1.0
@@ -369,6 +441,15 @@ def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles:
         action = "BLOCK"
         reason = "low_liquidity"
         confidence = experts["liquidity"]["sell"]
+    elif experts["risk"]["buy"] == 0.0 and buy_score >= sell_score:
+        blocked = True
+        action = "BLOCK"
+        reason = experts["risk"]["label"]
+        confidence = max(buy_score, experts["risk"]["sell"])
+    elif experts["risk"]["positionExists"] is False and sell_score >= buy_score and sell_score >= sell_threshold:
+        action = "HOLD"
+        reason = "no_position_to_reduce"
+        confidence = sell_score
     elif buy_score >= buy_threshold and (buy_score - sell_score) >= decision_margin:
         action = "BUY"
         reason = "multi_expert_buy_alignment"
@@ -405,8 +486,11 @@ def loop_once() -> None:
     confirmation_timeframe = confirmation_timeframes[0] if confirmation_timeframes else "1h"
     lookback = int(trading_config.get("lookbackCandles", 240))
     min_data_points = int(ai_config.get("minDataPoints", 120))
+    trading_enabled = bool(trading_config.get("enabled", False))
+    trading_mode = trading_config.get("mode", "paper")
 
     tickers = get_tickers(symbols, refresh=MARKET_REFRESH)
+    portfolio = get_portfolio()
 
     send_heartbeat(
         "running",
@@ -416,6 +500,13 @@ def loop_once() -> None:
             "loopIntervalSec": LOOP_INTERVAL_SEC,
             "primaryTimeframe": primary_timeframe,
             "confirmationTimeframe": confirmation_timeframe,
+            "tradingEnabled": trading_enabled,
+            "tradingMode": trading_mode,
+            "portfolio": {
+                "equity": portfolio.get("equity", 0),
+                "cashBalance": portfolio.get("cashBalance", 0),
+                "openPositionsCount": portfolio.get("openPositionsCount", 0),
+            },
         },
     )
 
@@ -425,11 +516,15 @@ def loop_once() -> None:
             "configVersion": config_row.get("version", 0),
             "symbolsCount": len(symbols),
             "primaryTimeframe": primary_timeframe,
+            "portfolioEquity": portfolio.get("equity", 0),
+            "openPositionsCount": portfolio.get("openPositionsCount", 0),
         },
     )
 
     processed = 0
     blocked_count = 0
+    filled_orders = 0
+    rejected_orders = 0
 
     for symbol in symbols:
         primary_candles = get_candles(symbol, primary_timeframe, lookback, refresh=MARKET_REFRESH)
@@ -455,11 +550,11 @@ def loop_once() -> None:
             )
             continue
 
-        decision = evaluate_symbol(primary_candles, confirmation_candles, ticker, config)
+        decision = evaluate_symbol(primary_candles, confirmation_candles, ticker, config, portfolio, symbol)
         if decision["blocked"]:
             blocked_count += 1
 
-        publish_decision(
+        decision_row = publish_decision(
             symbol=symbol,
             action=decision["action"],
             confidence=decision["confidence"],
@@ -467,13 +562,20 @@ def loop_once() -> None:
             reason=decision["reason"],
             payload={
                 "configVersion": config_row.get("version", 0),
-                "mode": trading_config.get("mode", "paper"),
+                "mode": trading_mode,
                 "primaryTimeframe": primary_timeframe,
                 "confirmationTimeframe": confirmation_timeframe,
                 "buyScore": decision["buyScore"],
                 "sellScore": decision["sellScore"],
                 "experts": decision["experts"],
                 "features": decision["features"],
+                "portfolio": {
+                    "equity": portfolio.get("equity", 0),
+                    "cashBalance": portfolio.get("cashBalance", 0),
+                    "openPositionsCount": portfolio.get("openPositionsCount", 0),
+                    "openSymbols": portfolio.get("openSymbols", []),
+                    "exposurePct": portfolio.get("exposurePct", 0),
+                },
                 "ticker": {
                     "price": float(ticker.get("price", 0.0)),
                     "quoteVolume": float(ticker.get("quoteVolume", 0.0)),
@@ -482,6 +584,27 @@ def loop_once() -> None:
                 },
             },
         )
+
+        if trading_enabled and trading_mode == "paper" and not decision["blocked"] and decision["action"] in {"BUY", "SELL"}:
+            order = submit_paper_order(
+                symbol=symbol,
+                side=decision["action"],
+                linked_decision_id=decision_row.get("id"),
+                reason=decision["reason"],
+                payload={
+                    "decisionConfidence": decision["confidence"],
+                    "buyScore": decision["buyScore"],
+                    "sellScore": decision["sellScore"],
+                    "experts": decision["experts"],
+                },
+            )
+
+            if order.get("status") == "FILLED":
+                filled_orders += 1
+                portfolio = get_portfolio()
+            elif order.get("status") == "REJECTED":
+                rejected_orders += 1
+
         processed += 1
 
     publish_event(
@@ -490,7 +613,11 @@ def loop_once() -> None:
             "configVersion": config_row.get("version", 0),
             "processedSymbols": processed,
             "blockedSymbols": blocked_count,
+            "filledOrders": filled_orders,
+            "rejectedOrders": rejected_orders,
             "primaryTimeframe": primary_timeframe,
+            "portfolioEquity": portfolio.get("equity", 0),
+            "openPositionsCount": portfolio.get("openPositionsCount", 0),
         },
     )
 

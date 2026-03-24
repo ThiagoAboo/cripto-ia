@@ -14,9 +14,21 @@ const DEFAULT_BOT_CONFIG = {
   risk: {
     maxRiskPerTradePct: 1,
     maxPortfolioExposurePct: 35,
+    maxSymbolExposurePct: 12,
     stopLossAtr: 1.8,
     takeProfitAtr: 2.6,
     allowAveragingDown: false,
+  },
+  execution: {
+    paper: {
+      initialCapital: 10000,
+      orderSizePct: 10,
+      minOrderNotional: 50,
+      feePct: 0.1,
+      slippagePct: 0.05,
+      allowMultipleEntriesPerSymbol: false,
+      sellFractionOnSignal: 1,
+    },
   },
   ai: {
     loopIntervalSec: 15,
@@ -25,11 +37,12 @@ const DEFAULT_BOT_CONFIG = {
     minConfidenceToSell: 0.60,
     decisionMargin: 0.05,
     expertWeights: {
-      trend: 0.28,
-      momentum: 0.24,
+      trend: 0.24,
+      momentum: 0.22,
       volatility: 0.14,
-      liquidity: 0.16,
-      regime: 0.18,
+      liquidity: 0.14,
+      regime: 0.16,
+      risk: 0.10,
     },
     useSocialBlockOnly: true,
     socialExtremeRiskThreshold: 85,
@@ -146,6 +159,89 @@ async function initializeDatabase() {
       raw JSONB NOT NULL DEFAULT '{}'::jsonb,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS paper_accounts (
+      account_key TEXT PRIMARY KEY,
+      mode TEXT NOT NULL DEFAULT 'paper',
+      base_currency TEXT NOT NULL,
+      starting_balance NUMERIC(28, 12) NOT NULL,
+      cash_balance NUMERIC(28, 12) NOT NULL,
+      realized_pnl NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      fees_paid NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      last_equity NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS paper_positions (
+      account_key TEXT NOT NULL REFERENCES paper_accounts(account_key) ON DELETE CASCADE,
+      symbol TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'OPEN',
+      quantity NUMERIC(28, 12) NOT NULL,
+      avg_entry_price NUMERIC(28, 12) NOT NULL,
+      cost_basis NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      last_price NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      market_value NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      unrealized_pnl NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      realized_pnl NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (account_key, symbol)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS paper_orders (
+      id BIGSERIAL PRIMARY KEY,
+      account_key TEXT NOT NULL REFERENCES paper_accounts(account_key) ON DELETE CASCADE,
+      worker_name TEXT,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      status TEXT NOT NULL,
+      requested_notional NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      executed_notional NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      requested_quantity NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      executed_quantity NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      price NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      fee_amount NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      slippage_pct NUMERIC(18, 8) NOT NULL DEFAULT 0,
+      reason TEXT,
+      rejection_reason TEXT,
+      linked_decision_id BIGINT REFERENCES ai_decisions(id) ON DELETE SET NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_paper_orders_created_at
+    ON paper_orders (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+      id BIGSERIAL PRIMARY KEY,
+      account_key TEXT NOT NULL REFERENCES paper_accounts(account_key) ON DELETE CASCADE,
+      cash_balance NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      positions_value NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      equity NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      realized_pnl NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      unrealized_pnl NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      open_positions_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_account_created_at
+    ON portfolio_snapshots (account_key, created_at DESC);
   `);
 
   await pool.query(`

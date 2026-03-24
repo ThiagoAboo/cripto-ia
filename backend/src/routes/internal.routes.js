@@ -1,7 +1,9 @@
 const express = require('express');
 const env = require('../config/env');
 const pool = require('../db/pool');
-const { publish } = require('../services/eventBus.service');
+const { publish, publishStatusSnapshot } = require('../services/eventBus.service');
+const { executePaperOrder } = require('../services/execution.service');
+const { getSystemStatus } = require('../services/status.service');
 
 const router = express.Router();
 
@@ -105,6 +107,54 @@ router.post('/decisions', async (request, response, next) => {
 
     publish('ai.decision', result.rows[0]);
     response.status(201).json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/orders/paper', async (request, response, next) => {
+  try {
+    const {
+      workerName,
+      symbol,
+      side,
+      reason = null,
+      linkedDecisionId = null,
+      requestedNotional = null,
+      requestedQuantity = null,
+      payload = {},
+    } = request.body || {};
+
+    if (!workerName || !symbol || !side) {
+      response.status(400).json({ error: 'workerName, symbol and side are required' });
+      return;
+    }
+
+    const order = await executePaperOrder({
+      workerName,
+      symbol,
+      side,
+      reason,
+      linkedDecisionId,
+      requestedNotional,
+      requestedQuantity,
+      payload,
+    });
+
+    publish('paper.order', order);
+    publish('portfolio.updated', {
+      accountKey: order.accountKey,
+      symbol: order.symbol,
+      side: order.side,
+      status: order.status,
+      orderId: order.id,
+      timestamp: new Date().toISOString(),
+    });
+
+    const snapshot = await getSystemStatus();
+    publishStatusSnapshot(snapshot);
+
+    response.status(201).json(order);
   } catch (error) {
     next(error);
   }
