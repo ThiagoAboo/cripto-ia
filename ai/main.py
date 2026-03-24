@@ -546,7 +546,7 @@ def manage_open_positions(portfolio: Dict[str, Any], tickers: Dict[str, Dict[str
                 },
             }
             decision = publish_decision(symbol, "SELL", 0.96, False, sell_reason, decision_payload)
-            submit_paper_order(symbol, "SELL", decision["id"], sell_reason, decision_payload)
+            submit_order(symbol, "SELL", decision["id"], sell_reason, decision_payload)
             publish_event("position.risk.sell_triggered", {
                 "symbol": symbol,
                 "reason": sell_reason,
@@ -660,6 +660,7 @@ def loop_once() -> None:
             "confirmationTimeframe": confirmation_timeframe,
             "tradingEnabled": trading_enabled,
             "tradingMode": trading_mode,
+            "executionEndpoint": "/internal/orders/execute",
             "socialEnabled": social_cfg.get("enabled", True),
             "portfolio": {
                 "equity": portfolio.get("equity", 0),
@@ -732,14 +733,14 @@ def loop_once() -> None:
             },
         )
 
-        if trading_enabled and trading_mode == "paper" and evaluation["action"] in {"BUY", "SELL"} and not evaluation["blocked"]:
+        if trading_enabled and evaluation["action"] in {"BUY", "SELL"} and not evaluation["blocked"]:
             order_payload = {
                 "experts": evaluation["experts"],
                 "features": evaluation["features"],
                 "risk": evaluation["riskPlan"],
                 "social": social_score,
             }
-            submit_paper_order(symbol, evaluation["action"], decision["id"], evaluation["reason"], order_payload)
+            submit_order(symbol, evaluation["action"], decision["id"], evaluation["reason"], order_payload)
 
 
 def main() -> None:

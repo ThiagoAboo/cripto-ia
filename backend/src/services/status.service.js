@@ -2,6 +2,7 @@ const pool = require('../db/pool');
 const { getActiveConfig } = require('./config.service');
 const { getPaperSummary, listPaperOrders } = require('./portfolio.service');
 const { getSocialSummary, getSocialScores, listSocialAlerts } = require('./social.service');
+const { getExecutionStatus } = require('./executionAdapter.service');
 
 async function getSystemStatus() {
   const [
@@ -15,6 +16,7 @@ async function getSystemStatus() {
     socialSummary,
     topSocialScores,
     recentSocialAlerts,
+    execution,
   ] = await Promise.all([
     getActiveConfig(),
     pool.query(
@@ -55,6 +57,7 @@ async function getSystemStatus() {
     getSocialSummary(),
     getSocialScores({ limit: 12 }),
     listSocialAlerts({ limit: 20 }),
+    getExecutionStatus(),
   ]);
 
   return {
@@ -67,6 +70,7 @@ async function getSystemStatus() {
     })),
     recentOrders,
     portfolio,
+    execution,
     market: {
       symbolsCount: Number(marketSummary.rows[0]?.symbols_count || 0),
       tickersCount: Number(marketSummary.rows[0]?.tickers_count || 0),

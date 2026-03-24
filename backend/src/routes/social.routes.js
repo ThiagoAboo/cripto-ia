@@ -1,5 +1,10 @@
 const express = require('express');
-const { getSocialScores, listSocialAlerts, getSocialSummary } = require('../services/social.service');
+const {
+  getSocialScores,
+  listSocialAlerts,
+  getSocialSummary,
+  getProviderStatuses,
+} = require('../services/social.service');
 
 const router = express.Router();
 
@@ -33,6 +38,16 @@ router.get('/alerts', async (request, response, next) => {
       count: items.length,
       items,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/providers', async (request, response, next) => {
+  try {
+    const limit = Number(request.query.limit || 20);
+    const items = await getProviderStatuses({ limit });
+    response.json({ count: items.length, items });
   } catch (error) {
     next(error);
   }

@@ -31,6 +31,14 @@ const DEFAULT_BOT_CONFIG = {
       allowMultipleEntriesPerSymbol: false,
       sellFractionOnSignal: 1,
     },
+    live: {
+      enabled: false,
+      provider: 'binance_spot',
+      useTestnet: true,
+      dryRun: true,
+      requireBackendLiveFlag: true,
+      recvWindow: 5000,
+    },
   },
   ai: {
     loopIntervalSec: 15,
@@ -62,6 +70,13 @@ const DEFAULT_BOT_CONFIG = {
       enabled: false,
       subreddits: ['CryptoCurrency', 'CryptoMarkets'],
       limitPerSubreddit: 25,
+    },
+    coingecko: {
+      enabled: true,
+      useDemo: true,
+      cacheFallbackEnabled: true,
+      attributionRequired: true,
+      minRetryAfterSec: 900,
     },
   },
   market: {
@@ -301,6 +316,52 @@ async function initializeDatabase() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_social_alerts_created_at
     ON social_alerts (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS social_provider_statuses (
+      provider_key TEXT PRIMARY KEY,
+      provider_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'unknown',
+      mode TEXT NOT NULL DEFAULT 'free',
+      last_success_at TIMESTAMPTZ,
+      last_failure_at TIMESTAMPTZ,
+      last_http_status INTEGER,
+      retry_after_at TIMESTAMPTZ,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS live_order_attempts (
+      id BIGSERIAL PRIMARY KEY,
+      provider TEXT NOT NULL,
+      worker_name TEXT,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      status TEXT NOT NULL,
+      live_mode_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      dry_run BOOLEAN NOT NULL DEFAULT TRUE,
+      requested_notional NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      requested_quantity NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      executed_notional NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      executed_quantity NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      price NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      fee_amount NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      reason TEXT,
+      rejection_reason TEXT,
+      linked_decision_id BIGINT REFERENCES ai_decisions(id) ON DELETE SET NULL,
+      external_order_id TEXT,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_live_order_attempts_created_at
+    ON live_order_attempts (created_at DESC);
   `);
 
   await pool.query(

@@ -2,8 +2,13 @@ const express = require('express');
 const env = require('../config/env');
 const pool = require('../db/pool');
 const { publish, publishStatusSnapshot } = require('../services/eventBus.service');
-const { executePaperOrder, syncPaperPositionRisk } = require('../services/execution.service');
-const { upsertSocialScores, createSocialAlert } = require('../services/social.service');
+const { executeOrder } = require('../services/executionAdapter.service');
+const { syncPaperPositionRisk } = require('../services/execution.service');
+const {
+  upsertSocialScores,
+  createSocialAlert,
+  upsertProviderStatus,
+} = require('../services/social.service');
 const { getSystemStatus } = require('../services/status.service');
 
 const router = express.Router();
@@ -113,7 +118,7 @@ router.post('/decisions', async (request, response, next) => {
   }
 });
 
-router.post('/orders/paper', async (request, response, next) => {
+async function handleExecutionRequest(request, response, next, forceMode = null) {
   try {
     const {
       workerName,
@@ -131,7 +136,7 @@ router.post('/orders/paper', async (request, response, next) => {
       return;
     }
 
-    const order = await executePaperOrder({
+    const order = await executeOrder({
       workerName,
       symbol,
       side,
@@ -140,15 +145,17 @@ router.post('/orders/paper', async (request, response, next) => {
       requestedNotional,
       requestedQuantity,
       payload,
+      forceMode,
     });
 
-    publish('paper.order', order);
+    const eventName = forceMode === 'paper' || order.accountKey ? 'paper.order' : 'execution.order';
+    publish(eventName, order);
     publish('portfolio.updated', {
-      accountKey: order.accountKey,
       symbol: order.symbol,
       side: order.side,
       status: order.status,
       orderId: order.id,
+      mode: forceMode || null,
       timestamp: new Date().toISOString(),
     });
 
@@ -159,7 +166,10 @@ router.post('/orders/paper', async (request, response, next) => {
   } catch (error) {
     next(error);
   }
-});
+}
+
+router.post('/orders/execute', (request, response, next) => handleExecutionRequest(request, response, next));
+router.post('/orders/paper', (request, response, next) => handleExecutionRequest(request, response, next, 'paper'));
 
 router.post('/positions/risk-sync', async (request, response, next) => {
   try {
@@ -247,6 +257,44 @@ router.post('/social/alerts', async (request, response, next) => {
     publishStatusSnapshot(snapshot);
 
     response.status(201).json(alert);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/social/providers/status', async (request, response, next) => {
+  try {
+    const {
+      providerKey,
+      providerName,
+      status,
+      mode = 'free',
+      lastHttpStatus = null,
+      retryAfterAt = null,
+      payload = {},
+    } = request.body || {};
+
+    if (!providerKey || !status) {
+      response.status(400).json({ error: 'providerKey and status are required' });
+      return;
+    }
+
+    const item = await upsertProviderStatus({
+      providerKey,
+      providerName,
+      status,
+      mode,
+      lastHttpStatus,
+      retryAfterAt,
+      payload,
+    });
+
+    publish('social.provider', item);
+
+    const snapshot = await getSystemStatus();
+    publishStatusSnapshot(snapshot);
+
+    response.status(201).json(item);
   } catch (error) {
     next(error);
   }

@@ -97,6 +97,113 @@ async function createSocialAlert({ symbol, alertType, severity, action = null, m
   return result.rows[0];
 }
 
+async function upsertProviderStatus({
+  providerKey,
+  providerName,
+  status,
+  mode = 'free',
+  lastHttpStatus = null,
+  retryAfterAt = null,
+  payload = {},
+}) {
+  const safeProviderKey = String(providerKey || '').trim().toLowerCase();
+  if (!safeProviderKey) {
+    throw new Error('providerKey_required');
+  }
+
+  const safeStatus = String(status || 'unknown').toLowerCase();
+  const isSuccess = safeStatus === 'ok';
+  const result = await pool.query(
+    `
+      INSERT INTO social_provider_statuses (
+        provider_key,
+        provider_name,
+        status,
+        mode,
+        last_success_at,
+        last_failure_at,
+        last_http_status,
+        retry_after_at,
+        payload,
+        updated_at
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        CASE WHEN $3 = 'ok' THEN NOW() ELSE NULL END,
+        CASE WHEN $3 <> 'ok' THEN NOW() ELSE NULL END,
+        $5,
+        $6,
+        $7::jsonb,
+        NOW()
+      )
+      ON CONFLICT (provider_key)
+      DO UPDATE SET
+        provider_name = EXCLUDED.provider_name,
+        status = EXCLUDED.status,
+        mode = EXCLUDED.mode,
+        last_success_at = CASE WHEN EXCLUDED.status = 'ok' THEN NOW() ELSE social_provider_statuses.last_success_at END,
+        last_failure_at = CASE WHEN EXCLUDED.status <> 'ok' THEN NOW() ELSE social_provider_statuses.last_failure_at END,
+        last_http_status = EXCLUDED.last_http_status,
+        retry_after_at = EXCLUDED.retry_after_at,
+        payload = EXCLUDED.payload,
+        updated_at = NOW()
+      RETURNING
+        provider_key AS "providerKey",
+        provider_name AS "providerName",
+        status,
+        mode,
+        last_success_at AS "lastSuccessAt",
+        last_failure_at AS "lastFailureAt",
+        last_http_status AS "lastHttpStatus",
+        retry_after_at AS "retryAfterAt",
+        payload,
+        updated_at AS "updatedAt"
+    `,
+    [
+      safeProviderKey,
+      providerName || safeProviderKey,
+      safeStatus,
+      mode,
+      lastHttpStatus,
+      retryAfterAt,
+      JSON.stringify({
+        ...payload,
+        healthy: isSuccess,
+      }),
+    ],
+  );
+
+  return result.rows[0];
+}
+
+async function getProviderStatuses({ limit = 20 } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const result = await pool.query(
+    `
+      SELECT
+        provider_key AS "providerKey",
+        provider_name AS "providerName",
+        status,
+        mode,
+        last_success_at AS "lastSuccessAt",
+        last_failure_at AS "lastFailureAt",
+        last_http_status AS "lastHttpStatus",
+        retry_after_at AS "retryAfterAt",
+        payload,
+        updated_at AS "updatedAt"
+      FROM social_provider_statuses
+      ORDER BY provider_key ASC
+      LIMIT $1
+    `,
+    [safeLimit],
+  );
+
+  return result.rows;
+}
+
 async function getSocialScores({ symbols = [], limit = 50, classification = null } = {}) {
   const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
   const filters = [];
@@ -176,7 +283,7 @@ async function listSocialAlerts({ limit = 50, severity = null } = {}) {
 }
 
 async function getSocialSummary() {
-  const [scoresResult, alertsResult] = await Promise.all([
+  const [scoresResult, alertsResult, providers] = await Promise.all([
     pool.query(
       `
         SELECT
@@ -194,6 +301,7 @@ async function getSocialSummary() {
         FROM social_alerts
       `,
     ),
+    getProviderStatuses({ limit: 10 }),
   ]);
 
   return {
@@ -204,12 +312,18 @@ async function getSocialSummary() {
     lastUpdatedAt: scoresResult.rows[0]?.last_updated_at || null,
     alertsCount: Number(alertsResult.rows[0]?.count || 0),
     lastAlertAt: alertsResult.rows[0]?.last_alert_at || null,
+    providers,
+    attribution: {
+      coingecko: 'Data provided by CoinGecko Demo API when available.',
+    },
   };
 }
 
 module.exports = {
   upsertSocialScores,
   createSocialAlert,
+  upsertProviderStatus,
+  getProviderStatuses,
   getSocialScores,
   listSocialAlerts,
   getSocialSummary,

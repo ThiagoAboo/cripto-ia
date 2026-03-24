@@ -7,6 +7,12 @@ function getEnv(name, fallback) {
   return value === undefined || value === '' ? fallback : value;
 }
 
+function getBooleanEnv(name, fallback = false) {
+  const value = process.env[name];
+  if (value === undefined || value === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+}
+
 module.exports = {
   port: Number(getEnv('PORT', 4000)),
   nodeEnv: getEnv('NODE_ENV', 'development'),
@@ -23,5 +29,17 @@ module.exports = {
     binanceApiBaseUrl: getEnv('BINANCE_API_BASE_URL', 'https://api.binance.com').replace(/\/$/, ''),
     cacheTtlSec: Number(getEnv('MARKET_CACHE_TTL_SEC', 20)),
     defaultCandleLimit: Number(getEnv('CANDLE_DEFAULT_LIMIT', 300)),
+  },
+  execution: {
+    liveEnabled: getBooleanEnv('EXECUTION_LIVE_ENABLED', false),
+    defaultMode: getEnv('EXECUTION_DEFAULT_MODE', 'paper'),
+    binance: {
+      apiBaseUrl: getEnv('BINANCE_TRADE_API_BASE_URL', 'https://api.binance.com').replace(/\/$/, ''),
+      apiKey: getEnv('BINANCE_API_KEY', ''),
+      apiSecret: getEnv('BINANCE_API_SECRET', ''),
+      recvWindow: Number(getEnv('BINANCE_RECV_WINDOW', 5000)),
+      testnet: getBooleanEnv('BINANCE_TESTNET', true),
+      dryRun: getBooleanEnv('BINANCE_DRY_RUN', true),
+    },
   },
 };

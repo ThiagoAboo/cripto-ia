@@ -26,10 +26,18 @@ const DEFAULT_STATUS = {
     baseCurrency: 'USDT',
     positions: [],
   },
+  execution: {
+    mode: 'paper',
+    dryRun: true,
+    capabilities: {},
+    recentLiveAttempts: [],
+  },
   market: {},
   social: {
     topScores: [],
     recentAlerts: [],
+    providers: [],
+    attribution: {},
   },
   timestamp: null,
 };
@@ -167,6 +175,8 @@ export default function App() {
   const socialScores = status.social?.topScores?.length ? status.social.topScores : auxData.socialScores;
   const socialAlerts = status.social?.recentAlerts?.length ? status.social.recentAlerts : auxData.socialAlerts;
   const socialSummary = status.social?.assetsCount !== undefined ? status.social : auxData.socialSummary;
+  const execution = status.execution || DEFAULT_STATUS.execution;
+  const providerStatuses = socialSummary?.providers || [];
 
   const summaryCards = useMemo(() => {
     const portfolio = currentPortfolio || { baseCurrency: 'USDT' };
@@ -196,9 +206,12 @@ export default function App() {
         hint: `${portfolio.openPositionsCount || 0} posições abertas`,
       },
       {
-        label: 'Mercado',
-        value: `${formatNumber(status.market?.symbolsCount || 0, 0)} símbolos`,
-        hint: `Ticks: ${formatNumber(status.market?.tickersCount || 0, 0)} | Candles: ${formatNumber(status.market?.candlesCount || 0, 0)}`,
+        label: 'Execução',
+        value: String(execution.mode || 'paper').toUpperCase(),
+        hint: execution.mode === 'live'
+          ? (execution.liveReady ? `Live pronto${execution.dryRun ? ' (dry-run)' : ''}` : 'Live ainda não pronto')
+          : 'Paper desacoplado do frontend',
+        tone: execution.mode === 'live' ? (execution.liveReady ? 'warning' : 'danger') : 'default',
       },
       {
         label: 'Social',
@@ -207,7 +220,7 @@ export default function App() {
         tone: Number(socialSummary?.highRiskCount || 0) > 0 ? 'warning' : 'default',
       },
     ];
-  }, [currentPortfolio, health, socialSummary, status.market]);
+  }, [currentPortfolio, execution, health, socialSummary]);
 
   const handleTextChange = (path, value) => {
     setDraftConfig((current) => updateAtPath(current, path, value));
@@ -298,9 +311,10 @@ export default function App() {
                 <ConfigField label="Trading habilitado">
                   <input type="checkbox" checked={Boolean(draftConfig.trading.enabled)} onChange={(event) => handleCheckboxChange('trading.enabled', event.target.checked)} />
                 </ConfigField>
-                <ConfigField label="Modo de execução">
+                <ConfigField label="Modo de execução" hint="paper é o padrão seguro; live só fica pronto quando backend + chaves estiverem habilitados.">
                   <select value={draftConfig.trading.mode} onChange={(event) => handleTextChange('trading.mode', event.target.value)}>
                     <option value="paper">paper</option>
+                    <option value="live">live</option>
                   </select>
                 </ConfigField>
                 <ConfigField label="Moeda base">
@@ -353,6 +367,15 @@ export default function App() {
                 </ConfigField>
                 <ConfigField label="Margem de decisão">
                   <input type="number" step="0.01" value={draftConfig.ai.decisionMargin} onChange={(event) => handleNumberChange('ai.decisionMargin', event.target.value)} />
+                </ConfigField>
+                <ConfigField label="Live habilitado na config" hint="Mesmo ativando aqui, o backend ainda exige flag e chaves válidas.">
+                  <input type="checkbox" checked={Boolean(draftConfig.execution?.live?.enabled)} onChange={(event) => handleCheckboxChange('execution.live.enabled', event.target.checked)} />
+                </ConfigField>
+                <ConfigField label="Live em testnet">
+                  <input type="checkbox" checked={Boolean(draftConfig.execution?.live?.useTestnet)} onChange={(event) => handleCheckboxChange('execution.live.useTestnet', event.target.checked)} />
+                </ConfigField>
+                <ConfigField label="Live em dry-run">
+                  <input type="checkbox" checked={Boolean(draftConfig.execution?.live?.dryRun)} onChange={(event) => handleCheckboxChange('execution.live.dryRun', event.target.checked)} />
                 </ConfigField>
                 <ConfigField label="Social habilitado">
                   <input type="checkbox" checked={Boolean(draftConfig.social.enabled)} onChange={(event) => handleCheckboxChange('social.enabled', event.target.checked)} />
@@ -461,6 +484,27 @@ export default function App() {
             </div>
           </Section>
 
+          <Section title="Execução" subtitle="Preparação para sair do paper sem depender do frontend">
+            <div className="list-stack compact-scroll">
+              <div className="list-item list-item--column">
+                <strong>Modo atual: {String(execution.mode || 'paper').toUpperCase()}</strong>
+                <span className="muted">Live pronto: {execution.liveReady ? 'sim' : 'não'} • Dry-run: {execution.dryRun ? 'sim' : 'não'}</span>
+                <span className="muted">Provider: {execution.provider || 'binance_spot'}</span>
+              </div>
+              {execution.recentLiveAttempts?.length ? execution.recentLiveAttempts.map((item) => (
+                <div className="decision-card" key={item.id}>
+                  <div className="decision-card__row">
+                    <strong>{item.symbol}</strong>
+                    <span className={`pill pill--${String(item.status || 'info').toLowerCase().includes('reject') ? 'high' : 'warning'}`}>{item.status}</span>
+                  </div>
+                  <div>{item.side} • {item.provider}</div>
+                  <div className="muted">{item.rejectionReason || item.reason || 'sem detalhe adicional'}</div>
+                  <div className="muted">{formatDateTime(item.createdAt)}</div>
+                </div>
+              )) : <div className="muted">Nenhuma tentativa live registrada ainda.</div>}
+            </div>
+          </Section>
+
           <Section title="Decisões recentes" subtitle="Saída do meta-decisor e dos bloqueios">
             <div className="list-stack compact-scroll">
               {currentDecisions?.length ? currentDecisions.map((decision) => (
@@ -503,6 +547,26 @@ export default function App() {
                   )}
                 </tbody>
               </table>
+            </div>
+            <div className="muted" style={{ marginTop: '10px' }}>
+              {socialSummary?.attribution?.coingecko || 'Data social complementar. Quando disponível, CoinGecko Demo é usado apenas para ranking e alerta.'}
+            </div>
+          </Section>
+
+          <Section title="Provedores sociais" subtitle="Hotfix do CoinGecko Demo com fallback local quando houver limite/erro">
+            <div className="list-stack compact-scroll">
+              {providerStatuses?.length ? providerStatuses.map((provider) => (
+                <div className="list-item list-item--column" key={provider.providerKey}>
+                  <div className="decision-card__row">
+                    <strong>{provider.providerName || provider.providerKey}</strong>
+                    <span className={`pill pill--${String(provider.status || 'info').toLowerCase() === 'ok' ? 'buy' : String(provider.status || '').toLowerCase() === 'degraded' ? 'warning' : 'high'}`}>{provider.status}</span>
+                  </div>
+                  <span className="muted">Modo: {provider.mode || 'free'}</span>
+                  <span className="muted">Último sucesso: {formatDateTime(provider.lastSuccessAt)}</span>
+                  <span className="muted">Última falha: {formatDateTime(provider.lastFailureAt)}</span>
+                  <span className="muted">Retry after: {formatDateTime(provider.retryAfterAt)}</span>
+                </div>
+              )) : <div className="muted">Nenhum provedor social reportado ainda.</div>}
             </div>
           </Section>
 
