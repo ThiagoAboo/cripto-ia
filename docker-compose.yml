@@ -56,5 +56,18 @@ services:
     env_file:
       - ./social-worker/.env
 
+  frontend:
+    build:
+      context: ./frontend
+    container_name: criptoia-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    env_file:
+      - ./frontend/.env
+    ports:
+      - "5173:5173"
+
 volumes:
   postgres_data:
