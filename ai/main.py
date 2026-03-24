@@ -155,6 +155,20 @@ def get_portfolio() -> Dict[str, Any]:
     return response.json()
 
 
+def get_social_scores(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+    if not symbols:
+        return {}
+
+    response = requests.get(
+        f"{BACKEND_URL}/api/social/scores",
+        params={"symbols": ",".join(symbols), "limit": max(len(symbols), 1)},
+        timeout=REQUEST_TIMEOUT_SEC,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return {item["symbol"]: item for item in payload.get("items", [])}
+
+
 def send_heartbeat(status: str, payload: Dict[str, Any]) -> None:
     response = session.post(
         f"{BACKEND_URL}/internal/heartbeat",
@@ -216,10 +230,23 @@ def submit_paper_order(symbol: str, side: str, linked_decision_id: int, reason: 
     return response.json()
 
 
+def sync_position_risk(symbol: str, payload: Dict[str, Any]) -> None:
+    response = session.post(
+        f"{BACKEND_URL}/internal/positions/risk-sync",
+        data=json.dumps({
+            "symbol": symbol,
+            **payload,
+        }),
+        timeout=REQUEST_TIMEOUT_SEC,
+    )
+    response.raise_for_status()
+
+
 def compute_market_features(primary_candles: List[Dict[str, Any]], confirmation_candles: List[Dict[str, Any]], ticker: Dict[str, Any]) -> Dict[str, float]:
     closes = [float(item["close"]) for item in primary_candles]
     highs = [float(item["high"]) for item in primary_candles]
     lows = [float(item["low"]) for item in primary_candles]
+    opens = [float(item["open"]) for item in primary_candles]
     volumes = [float(item["quoteVolume"]) for item in primary_candles]
 
     close_now = closes[-1]
@@ -249,6 +276,11 @@ def compute_market_features(primary_candles: List[Dict[str, Any]], confirmation_
     momentum_20 = pct_change(close_now, closes[-21]) if len(closes) >= 21 else 0.0
     volume_ratio = safe_div(volumes[-1], average(volumes[-20:]), 1.0) if len(volumes) >= 20 else 1.0
     slope_fast = linear_slope(closes[-15:])
+    candle_body = safe_div(abs(closes[-1] - opens[-1]), closes[-1], 0.0)
+    upper_wick = safe_div(highs[-1] - max(closes[-1], opens[-1]), closes[-1], 0.0)
+    lower_wick = safe_div(min(closes[-1], opens[-1]) - lows[-1], closes[-1], 0.0)
+    breakout_strength = safe_div(close_now - max(highs[-20:-1]), atr_now, 0.0) if recent_high_break and atr_now > 0 else 0.0
+    breakdown_strength = safe_div(min(lows[-20:-1]) - close_now, atr_now, 0.0) if recent_low_break and atr_now > 0 else 0.0
 
     confirmation_closes = [float(item["close"]) for item in confirmation_candles]
     confirmation_trend = 0.0
@@ -265,6 +297,7 @@ def compute_market_features(primary_candles: List[Dict[str, Any]], confirmation_
         "close": close_now,
         "closePrev": close_prev,
         "rsi": rsi_now,
+        "atr": atr_now,
         "atrPct": atr_pct,
         "bandWidthPct": band_width_pct,
         "realizedVol": realized_vol,
@@ -282,6 +315,11 @@ def compute_market_features(primary_candles: List[Dict[str, Any]], confirmation_
         "tickerQuoteVolume": ticker_quote_volume,
         "tickerTradeCount": ticker_trade_count,
         "tickerChangePct": ticker_change_pct,
+        "candleBody": candle_body,
+        "upperWick": upper_wick,
+        "lowerWick": lower_wick,
+        "breakoutStrength": breakout_strength,
+        "breakdownStrength": breakdown_strength,
     }
 
 
@@ -366,6 +404,15 @@ def regime_expert(features: Dict[str, float]) -> Dict[str, Any]:
     return {"buy": round(buy, 4), "sell": round(sell, 4), "label": label}
 
 
+def pattern_expert(features: Dict[str, float]) -> Dict[str, Any]:
+    bullish_candle = clamp((features["candleBody"] * 25) + (features["lowerWick"] * 10), 0.0, 1.0)
+    bearish_candle = clamp((features["candleBody"] * 20) + (features["upperWick"] * 10), 0.0, 1.0)
+    buy = clamp(0.20 + bullish_candle * 0.35 + max(0.0, features["breakoutStrength"]) * 0.25, 0.0, 1.0)
+    sell = clamp(0.20 + bearish_candle * 0.20 + max(0.0, features["breakdownStrength"]) * 0.35, 0.0, 1.0)
+    label = "pattern_bullish" if buy > sell else "pattern_bearish_or_neutral"
+    return {"buy": round(buy, 4), "sell": round(sell, 4), "label": label}
+
+
 def risk_expert(symbol: str, portfolio: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
     open_symbols = set(portfolio.get("openSymbols", []))
     open_positions = int(portfolio.get("openPositionsCount", 0))
@@ -410,12 +457,112 @@ def risk_expert(symbol: str, portfolio: Dict[str, Any], config: Dict[str, Any]) 
     }
 
 
-def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles: List[Dict[str, Any]], ticker: Dict[str, Any], config: Dict[str, Any], portfolio: Dict[str, Any], symbol: str) -> Dict[str, Any]:
+def build_risk_plan(features: Dict[str, float], config: Dict[str, Any]) -> Dict[str, Any]:
+    risk_cfg = config.get("risk", {})
+    atr_value = float(features.get("atr", 0.0))
+    close_price = float(features.get("close", 0.0))
+    stop_loss_atr = float(risk_cfg.get("stopLossAtr", 1.8))
+    take_profit_atr = float(risk_cfg.get("takeProfitAtr", 2.6))
+    trailing_stop_atr = float(risk_cfg.get("trailingStopAtr", 1.2))
+    enable_trailing = bool(risk_cfg.get("enableTrailingStop", True))
+
+    stop_loss_price = max(0.0, close_price - (atr_value * stop_loss_atr)) if atr_value > 0 else 0.0
+    take_profit_price = max(0.0, close_price + (atr_value * take_profit_atr)) if atr_value > 0 else 0.0
+    trailing_stop_price = max(0.0, close_price - (atr_value * trailing_stop_atr)) if enable_trailing and atr_value > 0 else 0.0
+
+    return {
+        "atr": round(atr_value, 8),
+        "stopLossPrice": round(stop_loss_price, 8),
+        "takeProfitPrice": round(take_profit_price, 8),
+        "trailingStopPrice": round(trailing_stop_price, 8),
+        "highestPrice": round(close_price, 8),
+        "enableTrailingStop": enable_trailing,
+        "riskStatus": "NORMAL",
+    }
+
+
+def manage_open_positions(portfolio: Dict[str, Any], tickers: Dict[str, Dict[str, Any]], config: Dict[str, Any]) -> None:
+    positions = portfolio.get("positions", [])
+    risk_cfg = config.get("risk", {})
+    trailing_stop_atr = float(risk_cfg.get("trailingStopAtr", 1.2))
+    enable_trailing = bool(risk_cfg.get("enableTrailingStop", True))
+
+    for position in positions:
+        symbol = position["symbol"]
+        ticker = tickers.get(symbol)
+        if not ticker:
+            continue
+
+        current_price = float(ticker.get("price", 0.0))
+        if current_price <= 0:
+            continue
+
+        highest_price = max(float(position.get("highestPrice", 0.0) or 0.0), current_price)
+        atr_at_entry = float(position.get("atrAtEntry", 0.0) or 0.0)
+        stop_loss_price = float(position.get("stopLossPrice", 0.0) or 0.0)
+        take_profit_price = float(position.get("takeProfitPrice", 0.0) or 0.0)
+        trailing_stop_price = float(position.get("trailingStopPrice", 0.0) or 0.0)
+
+        if enable_trailing and atr_at_entry > 0:
+            candidate_trailing = highest_price - (atr_at_entry * trailing_stop_atr)
+            trailing_stop_price = max(trailing_stop_price, candidate_trailing)
+
+        risk_status = "NORMAL"
+        sell_reason = None
+
+        if stop_loss_price > 0 and current_price <= stop_loss_price:
+            risk_status = "STOP_LOSS_HIT"
+            sell_reason = "stop_loss_hit"
+        elif take_profit_price > 0 and current_price >= take_profit_price:
+            risk_status = "TAKE_PROFIT_HIT"
+            sell_reason = "take_profit_hit"
+        elif enable_trailing and trailing_stop_price > 0 and current_price <= trailing_stop_price and highest_price > float(position.get("avgEntryPrice", 0.0)):
+            risk_status = "TRAILING_STOP_HIT"
+            sell_reason = "trailing_stop_hit"
+
+        sync_position_risk(symbol, {
+            "highestPrice": highest_price,
+            "trailingStopPrice": trailing_stop_price,
+            "stopLossPrice": stop_loss_price,
+            "takeProfitPrice": take_profit_price,
+            "riskStatus": risk_status,
+            "metadataPatch": {
+                "lastManagedAt": int(time.time()),
+                "currentPrice": current_price,
+            },
+        })
+
+        if sell_reason:
+            decision_payload = {
+                "source": "position_risk_manager",
+                "currentPrice": current_price,
+                "risk": {
+                    "atr": atr_at_entry,
+                    "stopLossPrice": stop_loss_price,
+                    "takeProfitPrice": take_profit_price,
+                    "trailingStopPrice": trailing_stop_price,
+                    "highestPrice": highest_price,
+                    "riskStatus": risk_status,
+                },
+            }
+            decision = publish_decision(symbol, "SELL", 0.96, False, sell_reason, decision_payload)
+            submit_paper_order(symbol, "SELL", decision["id"], sell_reason, decision_payload)
+            publish_event("position.risk.sell_triggered", {
+                "symbol": symbol,
+                "reason": sell_reason,
+                "currentPrice": current_price,
+                "riskStatus": risk_status,
+            })
+
+
+def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles: List[Dict[str, Any]], ticker: Dict[str, Any], config: Dict[str, Any], portfolio: Dict[str, Any], symbol: str, social_score: Dict[str, Any]) -> Dict[str, Any]:
     ai_config = config.get("ai", {})
+    social_cfg = config.get("social", {})
     weights = ai_config.get("expertWeights", {})
     buy_threshold = float(ai_config.get("minConfidenceToBuy", 0.64))
     sell_threshold = float(ai_config.get("minConfidenceToSell", 0.60))
     decision_margin = float(ai_config.get("decisionMargin", 0.05))
+    social_extreme_threshold = float(ai_config.get("socialExtremeRiskThreshold", social_cfg.get("extremeRiskThreshold", 85)))
 
     features = compute_market_features(primary_candles, confirmation_candles, ticker)
     experts = {
@@ -424,6 +571,7 @@ def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles:
         "volatility": volatility_expert(features),
         "liquidity": liquidity_expert(features),
         "regime": regime_expert(features),
+        "pattern": pattern_expert(features),
         "risk": risk_expert(symbol, portfolio, config),
     }
 
@@ -436,11 +584,17 @@ def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles:
     action = "HOLD"
     confidence = max(buy_score, sell_score)
 
+    social_risk = float((social_score or {}).get("socialRisk", 0.0) or 0.0)
     if experts["liquidity"]["buy"] < 0.30:
         blocked = True
         action = "BLOCK"
         reason = "low_liquidity"
         confidence = experts["liquidity"]["sell"]
+    elif social_cfg.get("enabled", True) and social_risk >= social_extreme_threshold:
+        blocked = True
+        action = "BLOCK"
+        reason = "social_extreme_risk"
+        confidence = clamp(social_risk / 100, 0.0, 1.0)
     elif experts["risk"]["buy"] == 0.0 and buy_score >= sell_score:
         blocked = True
         action = "BLOCK"
@@ -471,6 +625,8 @@ def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles:
             key: round(value, 6) if isinstance(value, float) else value
             for key, value in features.items()
         },
+        "riskPlan": build_risk_plan(features, config),
+        "social": social_score or {},
     }
 
 
@@ -479,6 +635,7 @@ def loop_once() -> None:
     config = config_row.get("config", {})
     trading_config = config.get("trading", {})
     ai_config = config.get("ai", {})
+    social_cfg = config.get("social", {})
 
     symbols = trading_config.get("symbols", [])
     primary_timeframe = trading_config.get("primaryTimeframe", trading_config.get("timeframe", "5m"))
@@ -491,6 +648,7 @@ def loop_once() -> None:
 
     tickers = get_tickers(symbols, refresh=MARKET_REFRESH)
     portfolio = get_portfolio()
+    social_scores = get_social_scores(symbols)
 
     send_heartbeat(
         "running",
@@ -502,6 +660,7 @@ def loop_once() -> None:
             "confirmationTimeframe": confirmation_timeframe,
             "tradingEnabled": trading_enabled,
             "tradingMode": trading_mode,
+            "socialEnabled": social_cfg.get("enabled", True),
             "portfolio": {
                 "equity": portfolio.get("equity", 0),
                 "cashBalance": portfolio.get("cashBalance", 0),
@@ -518,122 +677,85 @@ def loop_once() -> None:
             "primaryTimeframe": primary_timeframe,
             "portfolioEquity": portfolio.get("equity", 0),
             "openPositionsCount": portfolio.get("openPositionsCount", 0),
+            "socialScoresCount": len(social_scores),
         },
     )
 
-    processed = 0
-    blocked_count = 0
-    filled_orders = 0
-    rejected_orders = 0
+    manage_open_positions(portfolio, tickers, config)
 
     for symbol in symbols:
         primary_candles = get_candles(symbol, primary_timeframe, lookback, refresh=MARKET_REFRESH)
-        confirmation_candles = get_candles(symbol, confirmation_timeframe, max(120, lookback // 2), refresh=MARKET_REFRESH)
-        ticker = tickers.get(symbol, {})
+        confirmation_candles = get_candles(symbol, confirmation_timeframe, lookback, refresh=MARKET_REFRESH)
 
-        if len(primary_candles) < min_data_points or len(confirmation_candles) < 60:
-            blocked_count += 1
-            publish_decision(
-                symbol=symbol,
-                action="BLOCK",
-                confidence=0.0,
-                blocked=True,
-                reason="insufficient_market_history",
-                payload={
-                    "configVersion": config_row.get("version", 0),
-                    "primaryTimeframe": primary_timeframe,
-                    "confirmationTimeframe": confirmation_timeframe,
-                    "requiredPrimaryCandles": min_data_points,
-                    "receivedPrimaryCandles": len(primary_candles),
-                    "receivedConfirmationCandles": len(confirmation_candles),
+        if len(primary_candles) < min_data_points or len(confirmation_candles) < min_data_points:
+            publish_event(
+                "worker.symbol.skipped",
+                {
+                    "symbol": symbol,
+                    "reason": "not_enough_data",
+                    "primaryCount": len(primary_candles),
+                    "confirmationCount": len(confirmation_candles),
                 },
             )
             continue
 
-        decision = evaluate_symbol(primary_candles, confirmation_candles, ticker, config, portfolio, symbol)
-        if decision["blocked"]:
-            blocked_count += 1
+        ticker = tickers.get(symbol, {})
+        social_score = social_scores.get(symbol, {})
+        evaluation = evaluate_symbol(primary_candles, confirmation_candles, ticker, config, portfolio, symbol, social_score)
 
-        decision_row = publish_decision(
-            symbol=symbol,
-            action=decision["action"],
-            confidence=decision["confidence"],
-            blocked=decision["blocked"],
-            reason=decision["reason"],
-            payload={
-                "configVersion": config_row.get("version", 0),
-                "mode": trading_mode,
-                "primaryTimeframe": primary_timeframe,
-                "confirmationTimeframe": confirmation_timeframe,
-                "buyScore": decision["buyScore"],
-                "sellScore": decision["sellScore"],
-                "experts": decision["experts"],
-                "features": decision["features"],
-                "portfolio": {
-                    "equity": portfolio.get("equity", 0),
-                    "cashBalance": portfolio.get("cashBalance", 0),
-                    "openPositionsCount": portfolio.get("openPositionsCount", 0),
-                    "openSymbols": portfolio.get("openSymbols", []),
-                    "exposurePct": portfolio.get("exposurePct", 0),
-                },
-                "ticker": {
-                    "price": float(ticker.get("price", 0.0)),
-                    "quoteVolume": float(ticker.get("quoteVolume", 0.0)),
-                    "tradeCount": float(ticker.get("tradeCount", 0.0)),
-                    "priceChangePercent": float(ticker.get("priceChangePercent", 0.0)),
-                },
+        decision_payload = {
+            "symbol": symbol,
+            "timeframes": {
+                "primary": primary_timeframe,
+                "confirmation": confirmation_timeframe,
+            },
+            **evaluation,
+        }
+
+        decision = publish_decision(
+            symbol,
+            evaluation["action"],
+            evaluation["confidence"],
+            evaluation["blocked"],
+            evaluation["reason"],
+            decision_payload,
+        )
+
+        publish_event(
+            "worker.symbol.evaluated",
+            {
+                "symbol": symbol,
+                "action": evaluation["action"],
+                "blocked": evaluation["blocked"],
+                "confidence": evaluation["confidence"],
+                "reason": evaluation["reason"],
             },
         )
 
-        if trading_enabled and trading_mode == "paper" and not decision["blocked"] and decision["action"] in {"BUY", "SELL"}:
-            order = submit_paper_order(
-                symbol=symbol,
-                side=decision["action"],
-                linked_decision_id=decision_row.get("id"),
-                reason=decision["reason"],
-                payload={
-                    "decisionConfidence": decision["confidence"],
-                    "buyScore": decision["buyScore"],
-                    "sellScore": decision["sellScore"],
-                    "experts": decision["experts"],
-                },
-            )
-
-            if order.get("status") == "FILLED":
-                filled_orders += 1
-                portfolio = get_portfolio()
-            elif order.get("status") == "REJECTED":
-                rejected_orders += 1
-
-        processed += 1
-
-    publish_event(
-        "worker.loop.completed",
-        {
-            "configVersion": config_row.get("version", 0),
-            "processedSymbols": processed,
-            "blockedSymbols": blocked_count,
-            "filledOrders": filled_orders,
-            "rejectedOrders": rejected_orders,
-            "primaryTimeframe": primary_timeframe,
-            "portfolioEquity": portfolio.get("equity", 0),
-            "openPositionsCount": portfolio.get("openPositionsCount", 0),
-        },
-    )
+        if trading_enabled and trading_mode == "paper" and evaluation["action"] in {"BUY", "SELL"} and not evaluation["blocked"]:
+            order_payload = {
+                "experts": evaluation["experts"],
+                "features": evaluation["features"],
+                "risk": evaluation["riskPlan"],
+                "social": social_score,
+            }
+            submit_paper_order(symbol, evaluation["action"], decision["id"], evaluation["reason"], order_payload)
 
 
 def main() -> None:
+    publish_event("worker.started", {"workerName": WORKER_NAME})
+
     while True:
         try:
             loop_once()
         except Exception as error:  # noqa: BLE001
+            message = str(error)
+            print(f"[{WORKER_NAME}] loop failed: {message}")
             try:
-                send_heartbeat("error", {"message": str(error)})
-                publish_event("worker.loop.error", {"message": str(error)})
-            except Exception:
-                pass
-            time.sleep(5)
-            continue
+                send_heartbeat("error", {"message": message})
+                publish_event("worker.loop.failed", {"message": message})
+            except Exception as nested_error:  # noqa: BLE001
+                print(f"[{WORKER_NAME}] failed to publish error state: {nested_error}")
 
         time.sleep(LOOP_INTERVAL_SEC)
 

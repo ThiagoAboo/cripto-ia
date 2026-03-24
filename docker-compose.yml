@@ -43,5 +43,18 @@ services:
     env_file:
       - ./ai/.env
 
+  social-worker:
+    build:
+      context: ./social-worker
+    container_name: criptoia-social-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    env_file:
+      - ./social-worker/.env
+
 volumes:
   postgres_data:

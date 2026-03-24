@@ -1,9 +1,21 @@
 const pool = require('../db/pool');
 const { getActiveConfig } = require('./config.service');
 const { getPaperSummary, listPaperOrders } = require('./portfolio.service');
+const { getSocialSummary, getSocialScores, listSocialAlerts } = require('./social.service');
 
 async function getSystemStatus() {
-  const [configRow, workers, recentEvents, recentDecisions, marketSummary, portfolio, recentOrders] = await Promise.all([
+  const [
+    configRow,
+    workers,
+    recentEvents,
+    recentDecisions,
+    marketSummary,
+    portfolio,
+    recentOrders,
+    socialSummary,
+    topSocialScores,
+    recentSocialAlerts,
+  ] = await Promise.all([
     getActiveConfig(),
     pool.query(
       `
@@ -40,6 +52,9 @@ async function getSystemStatus() {
     ),
     getPaperSummary(),
     listPaperOrders({ limit: 20 }),
+    getSocialSummary(),
+    getSocialScores({ limit: 12 }),
+    listSocialAlerts({ limit: 20 }),
   ]);
 
   return {
@@ -58,6 +73,11 @@ async function getSystemStatus() {
       candlesCount: Number(marketSummary.rows[0]?.candles_count || 0),
       lastTickerUpdate: marketSummary.rows[0]?.last_ticker_update || null,
       lastCandleUpdate: marketSummary.rows[0]?.last_candle_update || null,
+    },
+    social: {
+      ...socialSummary,
+      topScores: topSocialScores,
+      recentAlerts: recentSocialAlerts,
     },
     timestamp: new Date().toISOString(),
   };

@@ -17,6 +17,8 @@ const DEFAULT_BOT_CONFIG = {
     maxSymbolExposurePct: 12,
     stopLossAtr: 1.8,
     takeProfitAtr: 2.6,
+    trailingStopAtr: 1.2,
+    enableTrailingStop: true,
     allowAveragingDown: false,
   },
   execution: {
@@ -37,11 +39,12 @@ const DEFAULT_BOT_CONFIG = {
     minConfidenceToSell: 0.60,
     decisionMargin: 0.05,
     expertWeights: {
-      trend: 0.24,
-      momentum: 0.22,
-      volatility: 0.14,
-      liquidity: 0.14,
-      regime: 0.16,
+      trend: 0.21,
+      momentum: 0.19,
+      volatility: 0.12,
+      liquidity: 0.12,
+      regime: 0.15,
+      pattern: 0.11,
       risk: 0.10,
     },
     useSocialBlockOnly: true,
@@ -49,8 +52,17 @@ const DEFAULT_BOT_CONFIG = {
   },
   social: {
     enabled: true,
-    sources: ['coingecko', 'reddit'],
     blockOnlyOnExtremeRisk: true,
+    extremeRiskThreshold: 85,
+    strongScoreThreshold: 72,
+    promisingScoreThreshold: 58,
+    refreshIntervalSec: 600,
+    sources: ['coingecko'],
+    reddit: {
+      enabled: false,
+      subreddits: ['CryptoCurrency', 'CryptoMarkets'],
+      limitPerSubreddit: 25,
+    },
   },
   market: {
     source: 'binance_spot',
@@ -196,6 +208,13 @@ async function initializeDatabase() {
     );
   `);
 
+  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS stop_loss_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS take_profit_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS trailing_stop_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS highest_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS atr_at_entry NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS risk_status TEXT NOT NULL DEFAULT 'NORMAL';`);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS paper_orders (
       id BIGSERIAL PRIMARY KEY,
@@ -247,6 +266,41 @@ async function initializeDatabase() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_ai_decisions_created_at
     ON ai_decisions (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS social_asset_scores (
+      symbol TEXT PRIMARY KEY,
+      social_score NUMERIC(10, 4) NOT NULL DEFAULT 0,
+      social_risk NUMERIC(10, 4) NOT NULL DEFAULT 0,
+      classification TEXT NOT NULL DEFAULT 'NEUTRA',
+      sentiment NUMERIC(10, 4) NOT NULL DEFAULT 0,
+      momentum NUMERIC(10, 4) NOT NULL DEFAULT 0,
+      spam_risk NUMERIC(10, 4) NOT NULL DEFAULT 0,
+      source_count INTEGER NOT NULL DEFAULT 0,
+      sources JSONB NOT NULL DEFAULT '[]'::jsonb,
+      notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+      raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS social_alerts (
+      id BIGSERIAL PRIMARY KEY,
+      symbol TEXT NOT NULL,
+      alert_type TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      action TEXT,
+      message TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_social_alerts_created_at
+    ON social_alerts (created_at DESC);
   `);
 
   await pool.query(

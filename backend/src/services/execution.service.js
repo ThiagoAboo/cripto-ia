@@ -18,6 +18,19 @@ async function refreshPrice(symbol) {
   return Number(ticker.price);
 }
 
+function extractRiskPayload(payload = {}, settings = {}) {
+  const risk = payload.risk || {};
+  return {
+    atr: Number(risk.atr || payload.atr || 0),
+    stopLossPrice: Number(risk.stopLossPrice || payload.stopLossPrice || 0),
+    takeProfitPrice: Number(risk.takeProfitPrice || payload.takeProfitPrice || 0),
+    trailingStopPrice: Number(risk.trailingStopPrice || payload.trailingStopPrice || 0),
+    highestPrice: Number(risk.highestPrice || payload.highestPrice || 0),
+    enableTrailingStop: risk.enableTrailingStop ?? settings.enableTrailingStop,
+    riskStatus: String(risk.riskStatus || payload.riskStatus || 'NORMAL').toUpperCase(),
+  };
+}
+
 async function createRejectedOrder(client, {
   accountKey,
   workerName,
@@ -210,6 +223,8 @@ async function snapshotPortfolio(client, accountKey) {
         p.symbol,
         p.quantity,
         p.cost_basis,
+        p.highest_price,
+        p.trailing_stop_price,
         COALESCE(mt.price, p.last_price, 0) AS mark_price
       FROM paper_positions p
       LEFT JOIN market_tickers mt ON mt.symbol = p.symbol
@@ -273,6 +288,61 @@ async function snapshotPortfolio(client, accountKey) {
     `,
     [accountKey, cashBalance, positionsValue, equity, realizedPnl, unrealizedPnl, positionsResult.rows.length],
   );
+}
+
+async function syncPaperPositionRisk({
+  symbol,
+  highestPrice = null,
+  trailingStopPrice = null,
+  stopLossPrice = null,
+  takeProfitPrice = null,
+  riskStatus = null,
+  metadataPatch = {},
+}) {
+  const normalizedSymbol = String(symbol || '').toUpperCase();
+  if (!normalizedSymbol) {
+    throw new Error('symbol_required');
+  }
+
+  const configRow = await getActiveConfig();
+  const config = configRow?.config || {};
+  const settings = getPaperSettings(config);
+
+  const result = await pool.query(
+    `
+      UPDATE paper_positions
+      SET highest_price = COALESCE($3, highest_price),
+          trailing_stop_price = COALESCE($4, trailing_stop_price),
+          stop_loss_price = COALESCE($5, stop_loss_price),
+          take_profit_price = COALESCE($6, take_profit_price),
+          risk_status = COALESCE($7, risk_status),
+          metadata = COALESCE(metadata, '{}'::jsonb) || $8::jsonb,
+          updated_at = NOW()
+      WHERE account_key = $1 AND symbol = $2 AND status = 'OPEN'
+      RETURNING
+        account_key AS "accountKey",
+        symbol,
+        highest_price AS "highestPrice",
+        trailing_stop_price AS "trailingStopPrice",
+        stop_loss_price AS "stopLossPrice",
+        take_profit_price AS "takeProfitPrice",
+        risk_status AS "riskStatus",
+        metadata,
+        updated_at AS "updatedAt"
+    `,
+    [
+      settings.accountKey,
+      normalizedSymbol,
+      highestPrice,
+      trailingStopPrice,
+      stopLossPrice,
+      takeProfitPrice,
+      riskStatus,
+      JSON.stringify(metadataPatch || {}),
+    ],
+  );
+
+  return result.rows[0] || null;
 }
 
 async function executePaperOrder({
@@ -364,6 +434,7 @@ async function executePaperOrder({
     const slippageFactor = 1 + ((normalizedSide === 'BUY' ? 1 : -1) * settings.slippagePct / 100);
     const executionPrice = priceSource * slippageFactor;
     const feeRate = settings.feePct / 100;
+    const risk = extractRiskPayload(payload, settings);
 
     const account = accountResult.rows[0];
     const cashBalance = Number(account.cash_balance || 0);
@@ -508,6 +579,11 @@ async function executePaperOrder({
       const nextQuantity = currentQuantity + executedQuantity;
       const nextCostBasis = currentCostBasis + totalCashRequired;
       const nextAvgEntryPrice = nextQuantity > 0 ? nextCostBasis / nextQuantity : executionPrice;
+      const stopLossPrice = risk.stopLossPrice || 0;
+      const takeProfitPrice = risk.takeProfitPrice || 0;
+      const trailingStopPrice = risk.enableTrailingStop ? (risk.trailingStopPrice || 0) : 0;
+      const highestPrice = Math.max(executionPrice, risk.highestPrice || executionPrice);
+      const atrAtEntry = risk.atr || 0;
 
       if (position) {
         await client.query(
@@ -519,8 +595,14 @@ async function executePaperOrder({
                 last_price = $6,
                 market_value = $7,
                 unrealized_pnl = $8,
+                stop_loss_price = COALESCE(NULLIF($9, 0), stop_loss_price),
+                take_profit_price = COALESCE(NULLIF($10, 0), take_profit_price),
+                trailing_stop_price = COALESCE(NULLIF($11, 0), trailing_stop_price),
+                highest_price = GREATEST(COALESCE(highest_price, 0), $12),
+                atr_at_entry = COALESCE(NULLIF($13, 0), atr_at_entry),
+                risk_status = $14,
                 updated_at = NOW(),
-                metadata = COALESCE(metadata, '{}'::jsonb) || $9::jsonb
+                metadata = COALESCE(metadata, '{}'::jsonb) || $15::jsonb
             WHERE account_key = $1 AND symbol = $2
           `,
           [
@@ -532,7 +614,13 @@ async function executePaperOrder({
             executionPrice,
             nextQuantity * executionPrice,
             (nextQuantity * executionPrice) - nextCostBasis,
-            JSON.stringify({ lastAction: 'BUY', lastReason: reason }),
+            stopLossPrice,
+            takeProfitPrice,
+            trailingStopPrice,
+            highestPrice,
+            atrAtEntry,
+            risk.riskStatus,
+            JSON.stringify({ lastAction: 'BUY', lastReason: reason, risk }),
           ],
         );
       } else {
@@ -549,11 +637,17 @@ async function executePaperOrder({
               market_value,
               unrealized_pnl,
               realized_pnl,
+              stop_loss_price,
+              take_profit_price,
+              trailing_stop_price,
+              highest_price,
+              atr_at_entry,
+              risk_status,
               metadata,
               opened_at,
               updated_at
             )
-            VALUES ($1, $2, 'OPEN', $3, $4, $5, $6, $7, $8, 0, $9::jsonb, NOW(), NOW())
+            VALUES ($1, $2, 'OPEN', $3, $4, $5, $6, $7, $8, 0, $9, $10, $11, $12, $13, $14, $15::jsonb, NOW(), NOW())
           `,
           [
             settings.accountKey,
@@ -564,7 +658,13 @@ async function executePaperOrder({
             executionPrice,
             nextQuantity * executionPrice,
             (nextQuantity * executionPrice) - nextCostBasis,
-            JSON.stringify({ openedBy: workerName, lastReason: reason }),
+            stopLossPrice,
+            takeProfitPrice,
+            trailingStopPrice,
+            highestPrice,
+            atrAtEntry,
+            risk.riskStatus,
+            JSON.stringify({ openedBy: workerName, lastReason: reason, risk }),
           ],
         );
       }
@@ -599,6 +699,14 @@ async function executePaperOrder({
           accountMode: 'paper',
           grossNotional: roundTo(plannedNotional),
           totalCashRequired: roundTo(totalCashRequired),
+          risk: {
+            atr: roundTo(atrAtEntry),
+            stopLossPrice: roundTo(stopLossPrice),
+            takeProfitPrice: roundTo(takeProfitPrice),
+            trailingStopPrice: roundTo(trailingStopPrice),
+            highestPrice: roundTo(highestPrice),
+            riskStatus: risk.riskStatus,
+          },
         },
       });
 
@@ -694,7 +802,7 @@ async function executePaperOrder({
           remainingQuantity * executionPrice,
           (remainingQuantity * executionPrice) - remainingCostBasis,
           realizedPnl,
-          JSON.stringify({ lastAction: 'SELL', lastReason: reason }),
+          JSON.stringify({ lastAction: 'SELL', lastReason: reason, risk: extractRiskPayload(payload, settings) }),
         ],
       );
     }
@@ -746,4 +854,5 @@ async function executePaperOrder({
 
 module.exports = {
   executePaperOrder,
+  syncPaperPositionRisk,
 };

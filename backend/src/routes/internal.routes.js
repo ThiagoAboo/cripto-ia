@@ -2,7 +2,8 @@ const express = require('express');
 const env = require('../config/env');
 const pool = require('../db/pool');
 const { publish, publishStatusSnapshot } = require('../services/eventBus.service');
-const { executePaperOrder } = require('../services/execution.service');
+const { executePaperOrder, syncPaperPositionRisk } = require('../services/execution.service');
+const { upsertSocialScores, createSocialAlert } = require('../services/social.service');
 const { getSystemStatus } = require('../services/status.service');
 
 const router = express.Router();
@@ -155,6 +156,97 @@ router.post('/orders/paper', async (request, response, next) => {
     publishStatusSnapshot(snapshot);
 
     response.status(201).json(order);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/positions/risk-sync', async (request, response, next) => {
+  try {
+    const {
+      symbol,
+      highestPrice = null,
+      trailingStopPrice = null,
+      stopLossPrice = null,
+      takeProfitPrice = null,
+      riskStatus = null,
+      metadataPatch = {},
+    } = request.body || {};
+
+    if (!symbol) {
+      response.status(400).json({ error: 'symbol is required' });
+      return;
+    }
+
+    const result = await syncPaperPositionRisk({
+      symbol,
+      highestPrice,
+      trailingStopPrice,
+      stopLossPrice,
+      takeProfitPrice,
+      riskStatus,
+      metadataPatch,
+    });
+
+    if (result) {
+      publish('portfolio.risk', result);
+    }
+
+    response.json({ ok: true, item: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/social/scores', async (request, response, next) => {
+  try {
+    const items = Array.isArray(request.body?.items) ? request.body.items : [];
+    const saved = await upsertSocialScores(items);
+
+    for (const item of saved) {
+      publish('social.update', item);
+    }
+
+    const snapshot = await getSystemStatus();
+    publishStatusSnapshot(snapshot);
+
+    response.status(201).json({ count: saved.length, items: saved });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/social/alerts', async (request, response, next) => {
+  try {
+    const {
+      symbol,
+      alertType,
+      severity,
+      action = null,
+      message,
+      payload = {},
+    } = request.body || {};
+
+    if (!symbol || !alertType || !severity || !message) {
+      response.status(400).json({ error: 'symbol, alertType, severity and message are required' });
+      return;
+    }
+
+    const alert = await createSocialAlert({
+      symbol,
+      alertType,
+      severity,
+      action,
+      message,
+      payload,
+    });
+
+    publish('social.alert', alert);
+
+    const snapshot = await getSystemStatus();
+    publishStatusSnapshot(snapshot);
+
+    response.status(201).json(alert);
   } catch (error) {
     next(error);
   }

@@ -31,6 +31,10 @@ function getPaperSettings(config = {}) {
     maxPortfolioExposurePct: Number(config?.risk?.maxPortfolioExposurePct || 35),
     maxSymbolExposurePct: Number(config?.risk?.maxSymbolExposurePct || 12),
     allowAveragingDown: Boolean(config?.risk?.allowAveragingDown),
+    stopLossAtr: Number(config?.risk?.stopLossAtr || 1.8),
+    takeProfitAtr: Number(config?.risk?.takeProfitAtr || 2.6),
+    trailingStopAtr: Number(config?.risk?.trailingStopAtr || 1.2),
+    enableTrailingStop: Boolean(config?.risk?.enableTrailingStop ?? true),
   };
 }
 
@@ -83,6 +87,24 @@ async function ensurePaperAccount(client, config) {
   );
 
   return result.rows[0];
+}
+
+function normalizePositionRow(row) {
+  return {
+    ...row,
+    quantity: Number(row.quantity),
+    avgEntryPrice: Number(row.avgEntryPrice),
+    costBasis: Number(row.costBasis),
+    lastPrice: Number(row.lastPrice),
+    marketValue: Number(row.marketValue),
+    unrealizedPnl: Number(row.unrealizedPnl),
+    realizedPnl: Number(row.realizedPnl),
+    stopLossPrice: Number(row.stopLossPrice || 0),
+    takeProfitPrice: Number(row.takeProfitPrice || 0),
+    trailingStopPrice: Number(row.trailingStopPrice || 0),
+    highestPrice: Number(row.highestPrice || 0),
+    atrAtEntry: Number(row.atrAtEntry || 0),
+  };
 }
 
 async function getPaperSummary(configOverride = null) {
@@ -149,6 +171,13 @@ async function getPaperSummary(configOverride = null) {
         (p.quantity * COALESCE(mt.price, p.last_price)) AS "marketValue",
         ((p.quantity * COALESCE(mt.price, p.last_price)) - p.cost_basis) AS "unrealizedPnl",
         p.realized_pnl AS "realizedPnl",
+        p.stop_loss_price AS "stopLossPrice",
+        p.take_profit_price AS "takeProfitPrice",
+        p.trailing_stop_price AS "trailingStopPrice",
+        p.highest_price AS "highestPrice",
+        p.atr_at_entry AS "atrAtEntry",
+        p.risk_status AS "riskStatus",
+        p.metadata,
         p.opened_at AS "openedAt",
         p.updated_at AS "updatedAt"
       FROM paper_positions p
@@ -159,16 +188,7 @@ async function getPaperSummary(configOverride = null) {
     [settings.accountKey],
   );
 
-  const positions = positionsResult.rows.map((row) => ({
-    ...row,
-    quantity: Number(row.quantity),
-    avgEntryPrice: Number(row.avgEntryPrice),
-    costBasis: Number(row.costBasis),
-    lastPrice: Number(row.lastPrice),
-    marketValue: Number(row.marketValue),
-    unrealizedPnl: Number(row.unrealizedPnl),
-    realizedPnl: Number(row.realizedPnl),
-  }));
+  const positions = positionsResult.rows.map(normalizePositionRow);
 
   const cashBalance = Number(accountRow.cashBalance);
   const positionsValue = positions.reduce((sum, item) => sum + item.marketValue, 0);
