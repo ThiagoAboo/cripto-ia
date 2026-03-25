@@ -43,6 +43,11 @@ import {
   resumeControl,
   triggerEmergencyStop,
   updateConfig,
+  fetchRunbooks,
+  fetchIncidentDrills,
+  runIncidentDrill,
+  fetchRecoveryActions,
+  runRecoveryAction,
 } from './lib/api';
 import { formatDateTime, formatList, formatMoney, formatNumber, formatPercent } from './lib/format';
 import Section from './components/Section';
@@ -185,6 +190,9 @@ const DEFAULT_STATUS = {
   recentPromotions: [],
   recentApprovalRequests: [],
   configAudit: [],
+  runbooks: [],
+  recentIncidentDrills: [],
+  recentRecoveryActions: [],
   timestamp: null,
 };
 
@@ -282,6 +290,9 @@ export default function App() {
     approvalRequests: [],
     backtests: [],
     optimizations: [],
+    runbooks: [],
+    incidentDrills: [],
+    recoveryActions: [],
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -300,6 +311,7 @@ export default function App() {
   const [opsActionLoading, setOpsActionLoading] = useState('');
   const [executionPreview, setExecutionPreview] = useState(null);
   const [notificationLoading, setNotificationLoading] = useState('');
+  const [incidentActionLoading, setIncidentActionLoading] = useState('');
   const [executionForm, setExecutionForm] = useState({
     symbol: 'BTCUSDT',
     side: 'BUY',
@@ -328,6 +340,9 @@ export default function App() {
         controlData,
         backtestsData,
         optimizationsData,
+        runbooksData,
+        incidentDrillsData,
+        recoveryActionsData,
       ] = await Promise.all([
         fetchHealth(),
         fetchConfig(),
@@ -345,6 +360,9 @@ export default function App() {
         fetchControl(),
         fetchBacktests(10),
         fetchOptimizations(10),
+        fetchRunbooks(12),
+        fetchIncidentDrills(10),
+        fetchRecoveryActions(10),
       ]);
 
       setHealth(healthData);
@@ -365,6 +383,9 @@ export default function App() {
         approvalRequests: approvalRequestsData.items || [],
         backtests: backtestsData.items || [],
         optimizations: optimizationsData.items || [],
+        runbooks: runbooksData.items || [],
+        incidentDrills: incidentDrillsData.items || [],
+        recoveryActions: recoveryActionsData.items || [],
       });
     } catch (requestError) {
       setError(requestError.message || 'Falha ao carregar dados do painel.');
@@ -445,6 +466,9 @@ export default function App() {
   const notifications = status.notifications || DEFAULT_STATUS.notifications;
   const policyReports = status.policy?.recentReports || [];
   const observability = status.observability || DEFAULT_STATUS.observability;
+  const runbooks = status.runbooks?.length ? status.runbooks : auxData.runbooks;
+  const recentIncidentDrills = status.recentIncidentDrills?.length ? status.recentIncidentDrills : auxData.incidentDrills;
+  const recentRecoveryActions = status.recentRecoveryActions?.length ? status.recentRecoveryActions : auxData.recoveryActions;
 
   const summaryCards = useMemo(() => {
     const portfolio = currentPortfolio || { baseCurrency: 'USDT' };
@@ -833,6 +857,34 @@ const handleSendTestNotification = async (channel = 'all') => {
   }
 };
 
+const handleRunIncidentDrill = async (scenarioKey, severity = 'warning') => {
+  setIncidentActionLoading(`drill-${scenarioKey}`);
+  setError('');
+  try {
+    await runIncidentDrill({ scenarioKey, severity, actor: 'dashboard', notes: `Simulação disparada pelo painel para ${scenarioKey}.` });
+    setSaveMessage(`Incidente simulado para ${scenarioKey}.`);
+    await loadEverything();
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao simular incidente.');
+  } finally {
+    setIncidentActionLoading('');
+  }
+};
+
+const handleRunRecoveryAction = async (runbookKey, actionKey) => {
+  setIncidentActionLoading(`recovery-${runbookKey}-${actionKey}`);
+  setError('');
+  try {
+    await runRecoveryAction({ runbookKey, actionKey, actor: 'dashboard', notes: `Ação ${actionKey} disparada pelo painel.` });
+    setSaveMessage(`Ação ${actionKey} executada para ${runbookKey}.`);
+    await loadEverything();
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao executar ação de recuperação.');
+  } finally {
+    setIncidentActionLoading('');
+  }
+};
+
   const providerStatuses = socialSummary?.providers || [];
 
   return (
@@ -843,7 +895,7 @@ const handleSendTestNotification = async (channel = 'all') => {
           <h1>Dashboard operacional</h1>
           <p className="hero__subtitle">
             Painel desacoplado dos workers. Nesta etapa, além do REST + SSE, o sistema ganhou promoção
-            controlada, aprovação em duas etapas, rollback assistido, healthchecks de execução, reconciliação supervisionada, prévia de ordem, dry-run supervisionado, confirmação explícita e agora jobs agendados, alertas ativos, readiness checklist, policy gates mais fortes, maintenance mode e alertas externos prontos para integração.
+            controlada, aprovação em duas etapas, rollback assistido, healthchecks de execução, reconciliação supervisionada, prévia de ordem, dry-run supervisionado, confirmação explícita e agora jobs agendados, alertas ativos, readiness checklist, policy gates mais fortes, maintenance mode, alertas externos, runbooks operacionais, simulação de incidentes e recuperação guiada.
           </p>
         </div>
         <div className="hero__status-group">
@@ -1734,6 +1786,51 @@ const handleSendTestNotification = async (channel = 'all') => {
                   <div className="muted">{item.eventType} • {formatDateTime(item.createdAt)}</div>
                 </div>
               )) : null}
+            </div>
+          </Section>
+
+          <Section title="Runbooks e incidentes" subtitle="Playbooks operacionais para simular incidentes e executar recuperação guiada sem mexer direto nos workers.">
+            <div className="list-stack compact-scroll">
+              {runbooks?.length ? runbooks.map((item) => (
+                <div key={item.runbookKey} className="list-item list-item--column">
+                  <div className="decision-card__row">
+                    <strong>{item.title}</strong>
+                    <Pill tone={item.severity === 'critical' ? 'high' : item.severity === 'high' ? 'warning' : 'info'}>{item.severity}</Pill>
+                  </div>
+                  <div className="muted">{item.description}</div>
+                  <div className="muted">Sinais: {formatList(item.detectionSignals || []).slice(0, 180) || '—'}</div>
+                  <div className="muted">Passos: {formatNumber(item.steps?.length || 0, 0)} • Ações: {formatNumber(item.recoveryActions?.length || 0, 0)}</div>
+                  <div className="button-row">
+                    <button className="button button--ghost" disabled={incidentActionLoading === `drill-${item.runbookKey}`} onClick={() => handleRunIncidentDrill(item.runbookKey, item.severity)}>
+                      {incidentActionLoading === `drill-${item.runbookKey}` ? 'Simulando...' : 'Simular incidente'}
+                    </button>
+                    {(item.recoveryActions || []).slice(0, 3).map((action) => (
+                      <button
+                        key={`${item.runbookKey}-${action.actionKey}`}
+                        className="button button--ghost"
+                        disabled={incidentActionLoading === `recovery-${item.runbookKey}-${action.actionKey}`}
+                        onClick={() => handleRunRecoveryAction(item.runbookKey, action.actionKey)}
+                      >
+                        {incidentActionLoading === `recovery-${item.runbookKey}-${action.actionKey}` ? 'Executando...' : action.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )) : <div className="muted">Sem runbooks operacionais cadastrados.</div>}
+
+              <div className="list-item list-item--column">
+                <strong>Incidentes simulados recentes</strong>
+                {recentIncidentDrills?.length ? recentIncidentDrills.slice(0, 5).map((item) => (
+                  <div key={item.id} className="muted">#{item.id} • {item.title} • {item.status} • {formatDateTime(item.createdAt)}</div>
+                )) : <div className="muted">Nenhuma simulação recente.</div>}
+              </div>
+
+              <div className="list-item list-item--column">
+                <strong>Ações de recuperação recentes</strong>
+                {recentRecoveryActions?.length ? recentRecoveryActions.slice(0, 6).map((item) => (
+                  <div key={item.id} className="muted">#{item.id} • {item.runbookKey} • {item.actionLabel} • {item.status} • {formatDateTime(item.createdAt)}</div>
+                )) : <div className="muted">Nenhuma ação de recuperação executada ainda.</div>}
+              </div>
             </div>
           </Section>
 

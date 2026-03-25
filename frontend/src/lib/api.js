@@ -329,3 +329,33 @@ export function buildObservabilityExportUrl(kind, format = 'json', limit = 500) 
   });
   return `${API_BASE_URL}/api/observability/export?${params.toString()}`;
 }
+
+export function fetchRunbooks(limit = 20) {
+  return request(`/api/runbooks?limit=${limit}`);
+}
+
+export function fetchRunbookByKey(runbookKey) {
+  return request(`/api/runbooks/${encodeURIComponent(runbookKey)}`);
+}
+
+export function fetchIncidentDrills(limit = 20) {
+  return request(`/api/incidents/drills?limit=${limit}`);
+}
+
+export function runIncidentDrill(payload = {}) {
+  return request('/api/incidents/drills/run', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchRecoveryActions(limit = 20) {
+  return request(`/api/incidents/recovery-actions?limit=${limit}`);
+}
+
+export function runRecoveryAction(payload = {}) {
+  return request('/api/incidents/recovery-actions/run', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
