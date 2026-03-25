@@ -129,6 +129,8 @@ async function handleExecutionRequest(request, response, next, forceMode = null)
       requestedNotional = null,
       requestedQuantity = null,
       payload = {},
+      actor = 'worker',
+      confirmationPhrase = '',
     } = request.body || {};
 
     if (!workerName || !symbol || !side) {
@@ -146,6 +148,8 @@ async function handleExecutionRequest(request, response, next, forceMode = null)
       requestedQuantity,
       payload,
       forceMode,
+      actor,
+      confirmationPhrase,
     });
 
     const eventName = forceMode === 'paper' || order.accountKey ? 'paper.order' : 'execution.order';

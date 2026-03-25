@@ -4,9 +4,25 @@ const pool = require('../db/pool');
 const { getActiveConfig } = require('./config.service');
 const { publish } = require('./eventBus.service');
 const { executePaperOrder } = require('./execution.service');
+const { getTickers, getSymbols } = require('./market.service');
 
 function bool(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+}
+
+function roundDownToStep(value, step) {
+  const numericValue = Number(value || 0);
+  const numericStep = Number(step || 0);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return 0;
+  if (!Number.isFinite(numericStep) || numericStep <= 0) return Number(numericValue.toFixed(8));
+  const factor = Math.floor(numericValue / numericStep);
+  const decimals = Math.max(0, (String(step).split('.')[1] || '').length);
+  return Number((factor * numericStep).toFixed(decimals));
+}
+
+function sanitizeNumber(value, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
 }
 
 function buildExecutionSummary(config = {}) {
@@ -19,6 +35,9 @@ function buildExecutionSummary(config = {}) {
   const dryRun = liveConfig.dryRun ?? env.execution.binance.dryRun;
   const useTestnet = liveConfig.useTestnet ?? env.execution.binance.testnet;
   const supervised = liveConfig.supervised ?? true;
+  const requireExplicitConfirmation = liveConfig.requireExplicitConfirmation ?? true;
+  const confirmationPhrase = String(liveConfig.confirmationPhrase || 'EXECUTAR_LIVE_TESTNET');
+  const maxOrderNotional = sanitizeNumber(liveConfig.maxOrderNotional || 0, 0);
 
   return {
     mode: tradingMode,
@@ -29,6 +48,9 @@ function buildExecutionSummary(config = {}) {
     dryRun: Boolean(dryRun),
     useTestnet: Boolean(useTestnet),
     supervised: Boolean(supervised),
+    requireExplicitConfirmation,
+    confirmationPhrase,
+    maxOrderNotional,
     capabilities: {
       paper: true,
       liveAdapterAvailable: provider === 'binance_spot',
@@ -38,6 +60,8 @@ function buildExecutionSummary(config = {}) {
       liveRecommended: false,
       healthchecksAvailable: true,
       reconciliationAvailable: provider === 'binance_spot',
+      previewAvailable: provider === 'binance_spot',
+      supervisedLiveSubmitAvailable: provider === 'binance_spot',
     },
   };
 }
@@ -71,6 +95,281 @@ function signParams(params) {
     .update(serialized)
     .digest('hex');
   return { serialized, signature };
+}
+
+async function createExecutionActionLog({
+  actionType,
+  actor = 'system',
+  mode = 'paper',
+  symbol = null,
+  side = null,
+  status = 'info',
+  confirmationRequired = false,
+  payload = {},
+}) {
+  const result = await pool.query(
+    `
+      INSERT INTO execution_action_logs (
+        action_type,
+        actor,
+        mode,
+        symbol,
+        side,
+        status,
+        confirmation_required,
+        payload,
+        created_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,NOW())
+      RETURNING
+        id,
+        action_type AS "actionType",
+        actor,
+        mode,
+        symbol,
+        side,
+        status,
+        confirmation_required AS "confirmationRequired",
+        payload,
+        created_at AS "createdAt"
+    `,
+    [
+      actionType,
+      actor,
+      mode,
+      symbol,
+      side,
+      status,
+      Boolean(confirmationRequired),
+      JSON.stringify(payload || {}),
+    ],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function listExecutionActionLogs({ limit = 30 } = {}) {
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        action_type AS "actionType",
+        actor,
+        mode,
+        symbol,
+        side,
+        status,
+        confirmation_required AS "confirmationRequired",
+        payload,
+        created_at AS "createdAt"
+      FROM execution_action_logs
+      ORDER BY created_at DESC, id DESC
+      LIMIT $1
+    `,
+    [Math.max(1, Math.min(Number(limit || 30), 200))],
+  );
+  return result.rows;
+}
+
+async function getSymbolTradingRules(symbol) {
+  if (!symbol) {
+    throw new Error('symbol_required');
+  }
+
+  let result = await pool.query(
+    `
+      SELECT symbol, raw, updated_at AS "updatedAt"
+      FROM market_symbols
+      WHERE symbol = $1
+      LIMIT 1
+    `,
+    [String(symbol).toUpperCase()],
+  );
+
+  if (!result.rows[0]) {
+    await getSymbols({ quoteAsset: 'USDT', refresh: true });
+    result = await pool.query(
+      `
+        SELECT symbol, raw, updated_at AS "updatedAt"
+        FROM market_symbols
+        WHERE symbol = $1
+        LIMIT 1
+      `,
+      [String(symbol).toUpperCase()],
+    );
+  }
+
+  const row = result.rows[0];
+  const raw = row?.raw || {};
+  const filters = Array.isArray(raw.filters) ? raw.filters : [];
+  const filterByType = Object.fromEntries(filters.map((item) => [item.filterType, item]));
+
+  return {
+    symbol: raw.symbol || String(symbol).toUpperCase(),
+    baseAsset: raw.baseAsset || null,
+    quoteAsset: raw.quoteAsset || null,
+    status: raw.status || 'UNKNOWN',
+    permissions: raw.permissions || [],
+    orderTypes: raw.orderTypes || [],
+    filters: {
+      lotSize: filterByType.LOT_SIZE || null,
+      marketLotSize: filterByType.MARKET_LOT_SIZE || null,
+      minNotional: filterByType.MIN_NOTIONAL || filterByType.NOTIONAL || null,
+      priceFilter: filterByType.PRICE_FILTER || null,
+    },
+    raw,
+  };
+}
+
+async function getCurrentPrice(symbol) {
+  const tickers = await getTickers({ symbols: [symbol], refresh: true });
+  const ticker = tickers[0];
+  return sanitizeNumber(ticker?.price || 0, 0);
+}
+
+async function buildOrderPreview({
+  symbol,
+  side,
+  requestedNotional = null,
+  requestedQuantity = null,
+  actor = 'dashboard',
+}) {
+  const configRow = await getActiveConfig();
+  const config = configRow?.config || {};
+  const summary = buildExecutionSummary(config);
+  const normalizedSymbol = String(symbol || '').toUpperCase();
+  const normalizedSide = String(side || '').toUpperCase();
+
+  if (!normalizedSymbol || !normalizedSide) {
+    throw new Error('symbol_and_side_required');
+  }
+
+  const [rules, price] = await Promise.all([
+    getSymbolTradingRules(normalizedSymbol),
+    getCurrentPrice(normalizedSymbol),
+  ]);
+
+  const warnings = [];
+  const confirmations = [];
+  const minNotional = sanitizeNumber(rules?.filters?.minNotional?.minNotional || rules?.filters?.minNotional?.notional || 0, 0);
+  const stepSize = sanitizeNumber(
+    rules?.filters?.marketLotSize?.stepSize || rules?.filters?.lotSize?.stepSize || 0,
+    0,
+  );
+  const minQty = sanitizeNumber(
+    rules?.filters?.marketLotSize?.minQty || rules?.filters?.lotSize?.minQty || 0,
+    0,
+  );
+  const maxQty = sanitizeNumber(
+    rules?.filters?.marketLotSize?.maxQty || rules?.filters?.lotSize?.maxQty || 0,
+    0,
+  );
+
+  let normalizedNotional = sanitizeNumber(requestedNotional, 0);
+  let normalizedQuantity = sanitizeNumber(requestedQuantity, 0);
+
+  if (normalizedSide === 'BUY') {
+    if (!normalizedNotional && normalizedQuantity && price > 0) {
+      normalizedNotional = normalizedQuantity * price;
+    }
+    if (!normalizedNotional) {
+      warnings.push('buy_missing_notional');
+    }
+    if (minNotional > 0 && normalizedNotional > 0 && normalizedNotional < minNotional) {
+      warnings.push(`buy_notional_below_min:${minNotional}`);
+    }
+  }
+
+  if (normalizedSide === 'SELL') {
+    if (!normalizedQuantity && normalizedNotional && price > 0) {
+      normalizedQuantity = normalizedNotional / price;
+    }
+    if (!normalizedQuantity) {
+      warnings.push('sell_missing_quantity');
+    }
+    const roundedQuantity = roundDownToStep(normalizedQuantity, stepSize);
+    if (roundedQuantity !== normalizedQuantity) {
+      warnings.push(`sell_quantity_rounded_to_step:${stepSize}`);
+    }
+    normalizedQuantity = roundedQuantity;
+    if (minQty > 0 && normalizedQuantity > 0 && normalizedQuantity < minQty) {
+      warnings.push(`sell_quantity_below_min:${minQty}`);
+    }
+    if (maxQty > 0 && normalizedQuantity > maxQty) {
+      warnings.push(`sell_quantity_above_max:${maxQty}`);
+    }
+    normalizedNotional = price > 0 ? normalizedQuantity * price : normalizedNotional;
+  }
+
+  if (summary.mode === 'live' || summary.liveConfigEnabled) {
+    confirmations.push('review_execution_mode_before_submit');
+  }
+  if (summary.requireExplicitConfirmation) {
+    confirmations.push(`type_confirmation_phrase:${summary.confirmationPhrase}`);
+  }
+  if (summary.maxOrderNotional > 0 && normalizedNotional > summary.maxOrderNotional) {
+    warnings.push(`notional_above_config_limit:${summary.maxOrderNotional}`);
+  }
+  if (!summary.backendLiveEnabled) {
+    warnings.push('backend_live_flag_disabled');
+  }
+  if (!summary.capabilities.liveKeysPresent) {
+    warnings.push('missing_binance_api_credentials');
+  }
+  if (summary.dryRun) {
+    warnings.push('dry_run_enabled');
+  }
+
+  const preview = {
+    mode: summary.mode,
+    provider: summary.provider,
+    useTestnet: summary.useTestnet,
+    dryRun: summary.dryRun,
+    supervised: summary.supervised,
+    symbol: normalizedSymbol,
+    side: normalizedSide,
+    actor,
+    price,
+    requestedNotional: sanitizeNumber(requestedNotional, 0),
+    requestedQuantity: sanitizeNumber(requestedQuantity, 0),
+    normalizedNotional,
+    normalizedQuantity,
+    estimatedNotional: normalizedSide === 'BUY' ? normalizedNotional : normalizedQuantity * price,
+    confirmationsRequired: confirmations,
+    warnings,
+    canSubmitLive: summary.liveReady && warnings.filter((item) => item.startsWith('buy_missing') || item.startsWith('sell_missing') || item.includes('below_min')).length === 0,
+    symbolRules: {
+      minNotional,
+      stepSize,
+      minQty,
+      maxQty,
+      quoteAsset: rules.quoteAsset,
+      baseAsset: rules.baseAsset,
+      orderTypes: rules.orderTypes,
+    },
+    configVersion: configRow?.version || 0,
+  };
+
+  const logRow = await createExecutionActionLog({
+    actionType: 'preview_order',
+    actor,
+    mode: summary.mode,
+    symbol: normalizedSymbol,
+    side: normalizedSide,
+    status: warnings.length ? 'warning' : 'ok',
+    confirmationRequired: summary.requireExplicitConfirmation,
+    payload: preview,
+  });
+
+  publish('execution.preview', {
+    preview,
+    log: logRow,
+  });
+
+  return {
+    ...preview,
+    log,
+  };
 }
 
 async function createLiveOrderAttempt({
@@ -185,9 +484,70 @@ async function submitBinanceLiveOrder({
   reason = null,
   linkedDecisionId = null,
   payload = {},
+  actor = 'worker',
+  confirmationPhrase = '',
 }) {
   const liveModeEnabled = configSummary.backendLiveEnabled && configSummary.liveConfigEnabled;
   const provider = configSummary.provider;
+  const preview = await buildOrderPreview({ symbol, side, requestedNotional, requestedQuantity, actor });
+
+  if (configSummary.requireExplicitConfirmation && String(confirmationPhrase || '') !== String(configSummary.confirmationPhrase || '')) {
+    const rejected = await createLiveOrderAttempt({
+      provider,
+      workerName,
+      symbol,
+      side,
+      status: 'REJECTED',
+      liveModeEnabled,
+      dryRun: configSummary.dryRun,
+      requestedNotional: Number(preview.normalizedNotional || 0),
+      requestedQuantity: Number(preview.normalizedQuantity || 0),
+      reason,
+      rejectionReason: 'explicit_confirmation_required',
+      linkedDecisionId,
+      payload: { ...payload, preview },
+    });
+    await createExecutionActionLog({
+      actionType: 'submit_live_order',
+      actor,
+      mode: 'live',
+      symbol,
+      side,
+      status: 'rejected',
+      confirmationRequired: true,
+      payload: { rejectionReason: 'explicit_confirmation_required', preview },
+    });
+    return rejected;
+  }
+
+  if (configSummary.maxOrderNotional > 0 && Number(preview.estimatedNotional || 0) > configSummary.maxOrderNotional) {
+    const rejected = await createLiveOrderAttempt({
+      provider,
+      workerName,
+      symbol,
+      side,
+      status: 'REJECTED',
+      liveModeEnabled,
+      dryRun: configSummary.dryRun,
+      requestedNotional: Number(preview.normalizedNotional || 0),
+      requestedQuantity: Number(preview.normalizedQuantity || 0),
+      reason,
+      rejectionReason: 'max_order_notional_exceeded',
+      linkedDecisionId,
+      payload: { ...payload, preview },
+    });
+    await createExecutionActionLog({
+      actionType: 'submit_live_order',
+      actor,
+      mode: 'live',
+      symbol,
+      side,
+      status: 'rejected',
+      confirmationRequired: configSummary.requireExplicitConfirmation,
+      payload: { rejectionReason: 'max_order_notional_exceeded', preview },
+    });
+    return rejected;
+  }
 
   if (!liveModeEnabled) {
     return createLiveOrderAttempt({
@@ -198,12 +558,12 @@ async function submitBinanceLiveOrder({
       status: 'REJECTED',
       liveModeEnabled,
       dryRun: configSummary.dryRun,
-      requestedNotional: Number(requestedNotional || 0),
-      requestedQuantity: Number(requestedQuantity || 0),
+      requestedNotional: Number(preview.normalizedNotional || 0),
+      requestedQuantity: Number(preview.normalizedQuantity || 0),
       reason,
       rejectionReason: 'live_mode_disabled',
       linkedDecisionId,
-      payload,
+      payload: { ...payload, preview },
     });
   }
 
@@ -216,12 +576,12 @@ async function submitBinanceLiveOrder({
       status: 'REJECTED',
       liveModeEnabled,
       dryRun: configSummary.dryRun,
-      requestedNotional: Number(requestedNotional || 0),
-      requestedQuantity: Number(requestedQuantity || 0),
+      requestedNotional: Number(preview.normalizedNotional || 0),
+      requestedQuantity: Number(preview.normalizedQuantity || 0),
       reason,
       rejectionReason: 'missing_binance_api_credentials',
       linkedDecisionId,
-      payload,
+      payload: { ...payload, preview },
     });
   }
 
@@ -234,17 +594,17 @@ async function submitBinanceLiveOrder({
       status: 'REJECTED',
       liveModeEnabled,
       dryRun: configSummary.dryRun,
-      requestedNotional: Number(requestedNotional || 0),
-      requestedQuantity: Number(requestedQuantity || 0),
+      requestedNotional: Number(preview.normalizedNotional || 0),
+      requestedQuantity: Number(preview.normalizedQuantity || 0),
       reason,
       rejectionReason: 'backend_live_flag_disabled',
       linkedDecisionId,
-      payload,
+      payload: { ...payload, preview },
     });
   }
 
   const params = {
-    symbol,
+    symbol: String(symbol).toUpperCase(),
     side: String(side).toUpperCase(),
     type: 'MARKET',
     timestamp: Date.now(),
@@ -253,9 +613,9 @@ async function submitBinanceLiveOrder({
   };
 
   if (params.side === 'BUY') {
-    params.quoteOrderQty = Number(requestedNotional || 0);
+    params.quoteOrderQty = Number(preview.normalizedNotional || 0);
   } else {
-    params.quantity = Number(requestedQuantity || 0);
+    params.quantity = Number(preview.normalizedQuantity || 0);
   }
 
   if ((!params.quoteOrderQty && params.side === 'BUY') || (!params.quantity && params.side === 'SELL')) {
@@ -267,12 +627,12 @@ async function submitBinanceLiveOrder({
       status: 'REJECTED',
       liveModeEnabled,
       dryRun: configSummary.dryRun,
-      requestedNotional: Number(requestedNotional || 0),
-      requestedQuantity: Number(requestedQuantity || 0),
+      requestedNotional: Number(preview.normalizedNotional || 0),
+      requestedQuantity: Number(preview.normalizedQuantity || 0),
       reason,
       rejectionReason: 'live_order_missing_quantity_or_notional',
       linkedDecisionId,
-      payload,
+      payload: { ...payload, preview },
     });
   }
 
@@ -294,7 +654,7 @@ async function submitBinanceLiveOrder({
   }
 
   if (!response.ok) {
-    return createLiveOrderAttempt({
+    const failed = await createLiveOrderAttempt({
       provider,
       workerName,
       symbol,
@@ -302,16 +662,27 @@ async function submitBinanceLiveOrder({
       status: 'REJECTED',
       liveModeEnabled,
       dryRun: configSummary.dryRun,
-      requestedNotional: Number(requestedNotional || 0),
-      requestedQuantity: Number(requestedQuantity || 0),
+      requestedNotional: Number(preview.normalizedNotional || 0),
+      requestedQuantity: Number(preview.normalizedQuantity || 0),
       reason,
       rejectionReason: `binance_live_request_failed:${response.status}`,
       linkedDecisionId,
-      payload: { ...payload, binance: parsed },
+      payload: { ...payload, preview, binance: parsed },
     });
+    await createExecutionActionLog({
+      actionType: 'submit_live_order',
+      actor,
+      mode: 'live',
+      symbol,
+      side,
+      status: 'error',
+      confirmationRequired: configSummary.requireExplicitConfirmation,
+      payload: { responseStatus: response.status, preview, binance: parsed },
+    });
+    return failed;
   }
 
-  return createLiveOrderAttempt({
+  const accepted = await createLiveOrderAttempt({
     provider,
     workerName,
     symbol,
@@ -319,8 +690,8 @@ async function submitBinanceLiveOrder({
     status: configSummary.dryRun ? 'ACCEPTED_DRY_RUN' : 'SUBMITTED',
     liveModeEnabled,
     dryRun: configSummary.dryRun,
-    requestedNotional: Number(requestedNotional || 0),
-    requestedQuantity: Number(requestedQuantity || 0),
+    requestedNotional: Number(preview.normalizedNotional || 0),
+    requestedQuantity: Number(preview.normalizedQuantity || 0),
     executedNotional: Number(parsed.cummulativeQuoteQty || 0),
     executedQuantity: Number(parsed.executedQty || 0),
     price: Number(parsed.price || 0),
@@ -328,8 +699,21 @@ async function submitBinanceLiveOrder({
     reason,
     linkedDecisionId,
     externalOrderId: parsed.orderId ? String(parsed.orderId) : null,
-    payload: { ...payload, binance: parsed },
+    payload: { ...payload, preview, binance: parsed },
   });
+
+  await createExecutionActionLog({
+    actionType: 'submit_live_order',
+    actor,
+    mode: 'live',
+    symbol,
+    side,
+    status: configSummary.dryRun ? 'dry_run' : 'submitted',
+    confirmationRequired: configSummary.requireExplicitConfirmation,
+    payload: { preview, result: accepted },
+  });
+
+  return accepted;
 }
 
 async function executeOrder({
@@ -342,6 +726,8 @@ async function executeOrder({
   requestedQuantity = null,
   payload = {},
   forceMode = null,
+  actor = 'worker',
+  confirmationPhrase = '',
 }) {
   const configRow = await getActiveConfig();
   const config = configRow?.config || {};
@@ -372,6 +758,8 @@ async function executeOrder({
       requestedNotional,
       requestedQuantity,
       payload,
+      actor,
+      confirmationPhrase,
     });
   }
 
@@ -383,7 +771,7 @@ async function getExecutionStatus() {
   const config = configRow?.config || {};
   const summary = buildExecutionSummary(config);
 
-  const [recentLiveAttempts, recentHealthChecks, recentReconciliations] = await Promise.all([
+  const [recentLiveAttempts, recentHealthChecks, recentReconciliations, recentActionLogs] = await Promise.all([
     pool.query(
       `
         SELECT
@@ -425,6 +813,14 @@ async function getExecutionStatus() {
         LIMIT 10
       `,
     ),
+    pool.query(
+      `
+        SELECT id, action_type AS "actionType", actor, mode, symbol, side, status, confirmation_required AS "confirmationRequired", payload, created_at AS "createdAt"
+        FROM execution_action_logs
+        ORDER BY created_at DESC, id DESC
+        LIMIT 20
+      `,
+    ),
   ]);
 
   return {
@@ -433,6 +829,7 @@ async function getExecutionStatus() {
     latestHealthCheck: recentHealthChecks.rows[0] || null,
     recentHealthChecks: recentHealthChecks.rows,
     recentReconciliations: recentReconciliations.rows,
+    recentActionLogs: recentActionLogs.rows,
     recentLiveAttempts: recentLiveAttempts.rows.map((row) => ({
       ...row,
       requestedNotional: Number(row.requestedNotional),
@@ -443,8 +840,6 @@ async function getExecutionStatus() {
     })),
   };
 }
-
-
 
 async function fetchWithTimeout(url, options = {}) {
   const controller = new AbortController();
@@ -562,6 +957,27 @@ async function runExecutionHealthCheck({ requestedBy = 'dashboard' } = {}) {
     severity = 'danger';
   }
 
+  let exchangeInfoResponse = null;
+  try {
+    exchangeInfoResponse = await binancePublicGet('/api/v3/exchangeInfo?permissions=%5B%22SPOT%22%5D', summary);
+    checks.push({
+      check: 'exchange_info',
+      ok: Boolean(exchangeInfoResponse.ok),
+      httpStatus: exchangeInfoResponse.status,
+      symbolsCount: Array.isArray(exchangeInfoResponse.payload?.symbols) ? exchangeInfoResponse.payload.symbols.length : 0,
+    });
+    if (!exchangeInfoResponse.ok && status !== 'error') {
+      status = 'warning';
+      severity = 'warning';
+    }
+  } catch (_error) {
+    checks.push({ check: 'exchange_info', ok: false, reason: 'exchange_info_fetch_failed' });
+    if (status !== 'error') {
+      status = 'warning';
+      severity = 'warning';
+    }
+  }
+
   let accountSnapshot = null;
   if (env.execution.binance.apiKey && env.execution.binance.apiSecret) {
     const accountResponse = await binanceSignedGet('/api/v3/account', {}, summary);
@@ -635,10 +1051,19 @@ async function runExecutionReconciliation({ requestedBy = 'dashboard', symbols =
     return row;
   }
 
-  const accountResponse = await binanceSignedGet('/api/v3/account', {}, summary);
-  const openOrdersResponse = await binanceSignedGet('/api/v3/openOrders', {}, summary);
-  const lookbackHours = env.execution.reconciliationLookbackHours;
+  const [accountResponse, openOrdersResponse, localPositionsResult] = await Promise.all([
+    binanceSignedGet('/api/v3/account', {}, summary),
+    binanceSignedGet('/api/v3/openOrders', {}, summary),
+    pool.query(
+      `
+        SELECT symbol, quantity, status, updated_at AS "updatedAt"
+        FROM paper_positions
+        WHERE status = 'OPEN'
+      `,
+    ),
+  ]);
 
+  const lookbackHours = env.execution.reconciliationLookbackHours;
   const recentAttemptsResult = await pool.query(
     `
       SELECT id, symbol, side, status, external_order_id AS "externalOrderId", created_at AS "createdAt"
@@ -663,13 +1088,30 @@ async function runExecutionReconciliation({ requestedBy = 'dashboard', symbols =
 
   const trackedSymbols = new Set((config?.trading?.symbols || []).map((item) => String(item).toUpperCase()));
   symbols.forEach((item) => trackedSymbols.add(String(item).toUpperCase()));
+  const baseCurrency = String(config?.trading?.baseCurrency || 'USDT').toUpperCase();
 
   const unmatchedBalances = nonZeroBalances
-    .filter((item) => item.asset !== (config?.trading?.baseCurrency || 'USDT'))
-    .filter((item) => !trackedSymbols.has(`${item.asset}${config?.trading?.baseCurrency || 'USDT'}`))
+    .filter((item) => item.asset !== baseCurrency)
+    .filter((item) => !trackedSymbols.has(`${item.asset}${baseCurrency}`))
     .slice(0, 20);
 
-  const status = (accountResponse.ok && openOrdersResponse.ok) ? (unmatchedBalances.length ? 'warning' : 'ok') : 'error';
+  const localPositions = localPositionsResult.rows.map((row) => ({
+    symbol: row.symbol,
+    quantity: Number(row.quantity || 0),
+    status: row.status,
+    updatedAt: row.updatedAt,
+  }));
+
+  const balanceBySymbol = new Map(nonZeroBalances.map((item) => [`${item.asset}${baseCurrency}`, item]));
+  const localOnlyPositions = localPositions.filter((position) => !balanceBySymbol.has(position.symbol));
+  const remoteOnlyBalances = nonZeroBalances
+    .filter((item) => item.asset !== baseCurrency)
+    .map((item) => `${item.asset}${baseCurrency}`)
+    .filter((symbol) => !localPositions.some((position) => position.symbol === symbol));
+
+  const status = (accountResponse.ok && openOrdersResponse.ok)
+    ? (unmatchedBalances.length || localOnlyPositions.length || remoteOnlyBalances.length ? 'warning' : 'ok')
+    : 'error';
 
   const row = await insertExecutionReconciliation({
     provider: summary.provider,
@@ -684,6 +1126,13 @@ async function runExecutionReconciliation({ requestedBy = 'dashboard', symbols =
       remoteOpenOrdersCount: filteredOpenOrders.length,
       remoteNonZeroBalancesCount: nonZeroBalances.length,
       unmatchedBalances,
+      localOnlyPositions: localOnlyPositions.slice(0, 20),
+      remoteOnlySymbols: remoteOnlyBalances.slice(0, 20),
+      mismatchCounts: {
+        unmatchedBalances: unmatchedBalances.length,
+        localOnlyPositions: localOnlyPositions.length,
+        remoteOnlySymbols: remoteOnlyBalances.length,
+      },
       openOrdersPreview: filteredOpenOrders.slice(0, 20).map((item) => ({
         symbol: item.symbol,
         side: item.side,
@@ -707,6 +1156,9 @@ async function runExecutionReconciliation({ requestedBy = 'dashboard', symbols =
 module.exports = {
   executeOrder,
   getExecutionStatus,
+  buildExecutionSummary,
+  buildOrderPreview,
+  listExecutionActionLogs,
   runExecutionHealthCheck,
   listExecutionHealthChecks,
   runExecutionReconciliation,

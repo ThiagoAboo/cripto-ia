@@ -224,3 +224,22 @@ export function runExecutionReconciliation(payload = {}) {
     body: JSON.stringify(payload),
   });
 }
+
+
+export function fetchExecutionActionLogs(limit = 20) {
+  return request(`/api/execution/action-logs?limit=${limit}`);
+}
+
+export function previewExecutionOrder(payload = {}) {
+  return request('/api/execution/preview', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function submitLiveOrder(payload = {}) {
+  return request('/api/execution/live-submit', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

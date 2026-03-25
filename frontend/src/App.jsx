@@ -11,6 +11,8 @@ import {
   fetchHealth,
   runExecutionHealthcheck,
   runExecutionReconciliation,
+  previewExecutionOrder,
+  submitLiveOrder,
   fetchOrders,
   fetchPortfolio,
   fetchSocialAlerts,
@@ -81,6 +83,9 @@ const DEFAULT_CONFIG = {
       useTestnet: true,
       dryRun: true,
       requireBackendLiveFlag: true,
+      requireExplicitConfirmation: true,
+      confirmationPhrase: 'EXECUTAR_LIVE_TESTNET',
+      maxOrderNotional: 250,
       recvWindow: 5000,
     },
   },
@@ -155,7 +160,7 @@ const DEFAULT_STATUS = {
   recentDecisions: [],
   recentOrders: [],
   portfolio: { baseCurrency: 'USDT', positions: [] },
-  execution: { mode: 'paper', dryRun: true, capabilities: {}, recentLiveAttempts: [], latestHealthCheck: null, recentHealthChecks: [], recentReconciliations: [] },
+  execution: { mode: 'paper', dryRun: true, capabilities: {}, recentLiveAttempts: [], recentActionLogs: [], latestHealthCheck: null, recentHealthChecks: [], recentReconciliations: [] },
   social: { topScores: [], recentAlerts: [], providers: [], attribution: {} },
   control: { isPaused: false, emergencyStop: false, activeCooldowns: [], guardrails: {} },
   configHistory: [],
@@ -276,6 +281,14 @@ export default function App() {
   const [promotionLoading, setPromotionLoading] = useState('');
   const [promotionSimulation, setPromotionSimulation] = useState(null);
   const [executionActionLoading, setExecutionActionLoading] = useState('');
+  const [executionPreview, setExecutionPreview] = useState(null);
+  const [executionForm, setExecutionForm] = useState({
+    symbol: 'BTCUSDT',
+    side: 'BUY',
+    requestedNotional: 100,
+    requestedQuantity: 0,
+    confirmationPhrase: '',
+  });
 
   const loadEverything = async () => {
     setError('');
@@ -354,6 +367,17 @@ export default function App() {
       interval: current.interval || draftConfig?.backtest?.defaultInterval || draftConfig?.trading?.primaryTimeframe || '5m',
       confirmationInterval: current.confirmationInterval || draftConfig?.backtest?.defaultConfirmationInterval || draftConfig?.trading?.confirmationTimeframes?.[0] || '15m',
       limit: current.limit || draftConfig?.backtest?.defaultLimit || draftConfig?.trading?.lookbackCandles || 400,
+    }));
+  }, [draftConfig]);
+
+
+  useEffect(() => {
+    if (!draftConfig) return;
+    setExecutionForm((current) => ({
+      ...current,
+      symbol: current.symbol || draftConfig?.trading?.symbols?.[0] || 'BTCUSDT',
+      requestedNotional: current.requestedNotional || draftConfig?.execution?.paper?.minOrderNotional || 100,
+      confirmationPhrase: current.confirmationPhrase || draftConfig?.execution?.live?.confirmationPhrase || '',
     }));
   }, [draftConfig]);
 
@@ -673,6 +697,54 @@ const handleExecutionAction = async (actionName, action, successMessage) => {
   }
 };
 
+
+const handlePreviewLiveOrder = async () => {
+  setExecutionActionLoading('preview');
+  setError('');
+  try {
+    const preview = await previewExecutionOrder({
+      symbol: executionForm.symbol,
+      side: executionForm.side,
+      requestedNotional: executionForm.side === 'BUY' ? Number(executionForm.requestedNotional || 0) : null,
+      requestedQuantity: executionForm.side === 'SELL' ? Number(executionForm.requestedQuantity || 0) : null,
+      actor: 'dashboard',
+    });
+    setExecutionPreview(preview);
+    setSaveMessage('Prévia da ordem carregada.');
+    await loadEverything();
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao gerar prévia da ordem live.');
+  } finally {
+    setExecutionActionLoading('');
+  }
+};
+
+const handleSubmitLiveOrder = async () => {
+  setExecutionActionLoading('submit-live');
+  setError('');
+  try {
+    const result = await submitLiveOrder({
+      symbol: executionForm.symbol,
+      side: executionForm.side,
+      requestedNotional: executionForm.side === 'BUY' ? Number(executionForm.requestedNotional || 0) : null,
+      requestedQuantity: executionForm.side === 'SELL' ? Number(executionForm.requestedQuantity || 0) : null,
+      requestedBy: 'dashboard',
+      confirmationPhrase: executionForm.confirmationPhrase,
+      reason: 'manual_supervised_live_submit_from_dashboard',
+      payload: {
+        source: 'dashboard',
+      },
+    });
+    setExecutionPreview((current) => current ? { ...current, lastSubmitResult: result } : { lastSubmitResult: result });
+    setSaveMessage(`Execução supervisionada concluída com status ${result.status}.`);
+    await loadEverything();
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao enviar ordem live supervisionada.');
+  } finally {
+    setExecutionActionLoading('');
+  }
+};
+
   const providerStatuses = socialSummary?.providers || [];
 
   return (
@@ -683,7 +755,7 @@ const handleExecutionAction = async (actionName, action, successMessage) => {
           <h1>Dashboard operacional</h1>
           <p className="hero__subtitle">
             Painel desacoplado dos workers. Nesta etapa, além do REST + SSE, o sistema ganhou promoção
-            controle de promoções com simulação prévia, aprovação em duas etapas, rollback assistido e agora healthchecks de execução, reconciliação supervisionada e preparação segura para testnet/live.
+            controlada, aprovação em duas etapas, rollback assistido, healthchecks de execução, reconciliação supervisionada e agora prévia de ordem, dry-run supervisionado e confirmação explícita para ações live/testnet.
           </p>
         </div>
         <div className="hero__status-group">
@@ -797,6 +869,7 @@ const handleExecutionAction = async (actionName, action, successMessage) => {
                     {execution.liveReady ? 'live ready' : execution.mode === 'live' ? 'live incompleto' : 'paper ativo'}
                   </Pill>
                   {execution.supervised ? <Pill tone="warning">supervisionado</Pill> : null}
+                  {execution.requireExplicitConfirmation ? <Pill tone="high">confirmação explícita</Pill> : null}
                 </div>
               </div>
 
@@ -815,6 +888,61 @@ const handleExecutionAction = async (actionName, action, successMessage) => {
                 </div>
               </div>
 
+              <div className="list-item list-item--column">
+                <div>
+                  <strong>Prévia e envio supervisionado</strong>
+                  <div className="muted">
+                    Use esta área para montar uma ordem testnet/live com revisão de filtros, notional e frase de confirmação.
+                  </div>
+                </div>
+                <div className="form-grid">
+                  <ConfigField label="Símbolo">
+                    <input value={executionForm.symbol} onChange={(event) => setExecutionForm((current) => ({ ...current, symbol: event.target.value.toUpperCase() }))} />
+                  </ConfigField>
+                  <ConfigField label="Lado">
+                    <select value={executionForm.side} onChange={(event) => setExecutionForm((current) => ({ ...current, side: event.target.value }))}>
+                      <option value="BUY">BUY</option>
+                      <option value="SELL">SELL</option>
+                    </select>
+                  </ConfigField>
+                  <ConfigField label="Notional (BUY)">
+                    <input type="number" step="0.01" value={executionForm.requestedNotional} onChange={(event) => setExecutionForm((current) => ({ ...current, requestedNotional: parseNumberInput(event.target.value, 0) }))} />
+                  </ConfigField>
+                  <ConfigField label="Quantidade (SELL)">
+                    <input type="number" step="0.000001" value={executionForm.requestedQuantity} onChange={(event) => setExecutionForm((current) => ({ ...current, requestedQuantity: parseNumberInput(event.target.value, 0) }))} />
+                  </ConfigField>
+                  <ConfigField label="Frase de confirmação" hint={`Obrigatória: ${draftConfig?.execution?.live?.confirmationPhrase || 'EXECUTAR_LIVE_TESTNET'}`}>
+                    <input value={executionForm.confirmationPhrase} onChange={(event) => setExecutionForm((current) => ({ ...current, confirmationPhrase: event.target.value }))} />
+                  </ConfigField>
+                </div>
+                <div className="button-row">
+                  <button className="button" disabled={executionActionLoading === 'preview'} onClick={handlePreviewLiveOrder}>
+                    {executionActionLoading === 'preview' ? 'Gerando...' : 'Gerar prévia'}
+                  </button>
+                  <button className="button button--danger" disabled={executionActionLoading === 'submit-live'} onClick={handleSubmitLiveOrder}>
+                    {executionActionLoading === 'submit-live' ? 'Enviando...' : 'Enviar supervisionado'}
+                  </button>
+                </div>
+                {executionPreview ? (
+                  <div className="metric-grid">
+                    <div className="list-item list-item--column">
+                      <strong>Preview</strong>
+                      <div className="muted">Preço: {formatMoney(executionPreview.price || 0, draftConfig?.trading?.baseCurrency || 'USDT')}</div>
+                      <div className="muted">Notional: {formatMoney(executionPreview.estimatedNotional || executionPreview.normalizedNotional || 0, draftConfig?.trading?.baseCurrency || 'USDT')}</div>
+                      <div className="muted">Quantidade: {formatNumber(executionPreview.normalizedQuantity || 0, 6)}</div>
+                    </div>
+                    <div className="list-item list-item--column">
+                      <strong>Warnings</strong>
+                      {(executionPreview.warnings || []).length ? (executionPreview.warnings || []).map((item) => <span key={item} className="muted">{item}</span>) : <span className="muted">sem warnings críticos</span>}
+                    </div>
+                    <div className="list-item list-item--column">
+                      <strong>Confirmações</strong>
+                      {(executionPreview.confirmationsRequired || []).length ? (executionPreview.confirmationsRequired || []).map((item) => <span key={item} className="muted">{item}</span>) : <span className="muted">nenhuma</span>}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
               {(execution.recentReconciliations || []).slice(0, 4).map((item) => (
                 <div key={item.id} className="list-item list-item--column">
                   <div>
@@ -825,9 +953,22 @@ const handleExecutionAction = async (actionName, action, successMessage) => {
                   </div>
                   <div className="button-row">
                     <Pill tone={item.status === 'ok' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{item.status}</Pill>
-                    {(item.summary?.unmatchedBalances || []).slice(0, 3).map((balance) => (
-                      <span key={balance.asset} className="muted">{balance.asset}: {formatNumber((balance.free || 0) + (balance.locked || 0), 6)}</span>
-                    ))}
+                    <span className="muted">mismatches: {formatNumber(item.summary?.mismatchCounts?.unmatchedBalances || 0, 0)}/{formatNumber(item.summary?.mismatchCounts?.localOnlyPositions || 0, 0)}/{formatNumber(item.summary?.mismatchCounts?.remoteOnlySymbols || 0, 0)}</span>
+                  </div>
+                </div>
+              ))}
+
+              {(execution.recentActionLogs || []).slice(0, 5).map((item) => (
+                <div key={item.id} className="list-item list-item--column">
+                  <div>
+                    <strong>{item.actionType}</strong>
+                    <div className="muted">
+                      {formatDateTime(item.createdAt)} • {item.actor} • {item.symbol || 'sem símbolo'} {item.side ? `• ${item.side}` : ''}
+                    </div>
+                  </div>
+                  <div className="button-row">
+                    <Pill tone={item.status === 'ok' || item.status === 'dry_run' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{item.status}</Pill>
+                    {item.confirmationRequired ? <Pill tone="high">confirmação</Pill> : null}
                   </div>
                 </div>
               ))}

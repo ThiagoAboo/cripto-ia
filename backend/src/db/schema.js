@@ -43,6 +43,9 @@ const DEFAULT_BOT_CONFIG = {
       dryRun: true,
       supervised: true,
       requireBackendLiveFlag: true,
+      requireExplicitConfirmation: true,
+      confirmationPhrase: 'EXECUTAR_LIVE_TESTNET',
+      maxOrderNotional: 250,
       recvWindow: 5000,
     },
   },
@@ -214,6 +217,27 @@ async function initializeDatabase() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_promotion_approval_requests_status
     ON promotion_approval_requests (status, created_at DESC);
+  `);
+
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS execution_action_logs (
+      id BIGSERIAL PRIMARY KEY,
+      action_type TEXT NOT NULL,
+      actor TEXT NOT NULL DEFAULT 'system',
+      mode TEXT NOT NULL DEFAULT 'paper',
+      symbol TEXT,
+      side TEXT,
+      status TEXT NOT NULL DEFAULT 'info',
+      confirmation_required BOOLEAN NOT NULL DEFAULT FALSE,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_execution_action_logs_created_at
+    ON execution_action_logs (created_at DESC);
   `);
 
   await pool.query(`
