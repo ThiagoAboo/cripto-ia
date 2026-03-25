@@ -8,40 +8,22 @@ const {
   listModelDriftReports,
   runTrainingAssistance,
 } = require('../services/training.service');
-const { getActiveConfig, updateActiveConfig } = require('../services/config.service');
+const {
+  getTrainingSettings,
+  updateTrainingSettings,
+  listRegimePresets,
+  applyRegimePreset,
+} = require('../services/trainingAdaptation.service');
 
 const router = express.Router();
 
-const DEFAULT_TRAINING_SETTINGS = {
-  minQualityScoreForApply: 0.56,
-  autoApplyMode: 'guarded',
-  allowApplyWithWarning: false,
-};
-
-function toNumber(value, fallback = 0) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function extractTrainingSettings(config = {}) {
-  const training = config?.training || {};
+function parseTrainingGuardrailError(error) {
+  const message = String(error?.message || '');
+  const match = message.match(/^training_quality_score_too_low:(.+)$/i);
+  if (!match) return null;
   return {
-    ...DEFAULT_TRAINING_SETTINGS,
-    ...training,
-    minQualityScoreForApply: toNumber(
-      training?.minQualityScoreForApply,
-      DEFAULT_TRAINING_SETTINGS.minQualityScoreForApply,
-    ),
-    allowApplyWithWarning: Boolean(training?.allowApplyWithWarning),
-    autoApplyMode: String(training?.autoApplyMode || DEFAULT_TRAINING_SETTINGS.autoApplyMode),
-  };
-}
-
-async function getNormalizedTrainingSettings() {
-  const activeConfig = await getActiveConfig();
-  return {
-    configVersion: activeConfig?.version || null,
-    settings: extractTrainingSettings(activeConfig?.config || {}),
+    qualityScore: Number(match[1]),
+    minRequired: null,
   };
 }
 
@@ -56,8 +38,8 @@ router.get('/summary', async (_request, response, next) => {
 
 router.get('/settings', async (_request, response, next) => {
   try {
-    const result = await getNormalizedTrainingSettings();
-    response.json(result);
+    const payload = await getTrainingSettings();
+    response.json(payload);
   } catch (error) {
     next(error);
   }
@@ -65,40 +47,29 @@ router.get('/settings', async (_request, response, next) => {
 
 router.put('/settings', async (request, response, next) => {
   try {
-    const current = await getActiveConfig();
-    const nextSettings = {
-      ...extractTrainingSettings(current?.config || {}),
-      ...(request.body || {}),
-    };
+    const { requestedBy = 'dashboard', ...rest } = request.body || {};
+    const payload = await updateTrainingSettings(rest, { requestedBy });
+    response.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
 
-    const nextConfig = {
-      ...(current?.config || {}),
-      training: {
-        ...(current?.config?.training || {}),
-        minQualityScoreForApply: toNumber(
-          nextSettings.minQualityScoreForApply,
-          DEFAULT_TRAINING_SETTINGS.minQualityScoreForApply,
-        ),
-        autoApplyMode: String(nextSettings.autoApplyMode || DEFAULT_TRAINING_SETTINGS.autoApplyMode),
-        allowApplyWithWarning: Boolean(nextSettings.allowApplyWithWarning),
-      },
-    };
+router.get('/regime-presets', async (request, response, next) => {
+  try {
+    const limit = Number(request.query.limit || 20);
+    const items = await listRegimePresets({ limit });
+    response.json(items);
+  } catch (error) {
+    next(error);
+  }
+});
 
-    const updated = await updateActiveConfig(nextConfig, {
-      actor: 'dashboard',
-      actionType: 'training_settings_update',
-      reason: 'training_settings_update',
-      metadata: {
-        source: 'training_page',
-      },
-    });
-
-    response.json({
-      ok: true,
-      configVersion: updated?.version || null,
-      settings: extractTrainingSettings(updated?.config || {}),
-      message: 'Configurações de treinamento atualizadas com sucesso.',
-    });
+router.post('/regime-presets/apply', async (request, response, next) => {
+  try {
+    const { regimeKey, requestedBy = 'dashboard' } = request.body || {};
+    const payload = await applyRegimePreset({ regimeKey, requestedBy });
+    response.status(201).json(payload);
   } catch (error) {
     next(error);
   }
@@ -186,48 +157,31 @@ router.post('/run', async (request, response, next) => {
       applySuggestedWeights,
     });
 
-    response.status(201).json({
-      ok: true,
-      warning: false,
-      status: 'completed',
-      ...result,
-    });
+    response.status(201).json(result);
   } catch (error) {
-    const message = String(error?.message || '');
-
-    if (message.startsWith('training_quality_score_too_low:')) {
-      try {
-        const qualityScore = Number(message.split(':')[1] || 0);
-        const { settings } = await getNormalizedTrainingSettings();
-
-        response.status(200).json({
-          ok: true,
-          warning: true,
-          status: 'completed_with_warning',
-          code: 'training_quality_score_too_low',
-          qualityScore,
-          minRequired: settings.minQualityScoreForApply,
-          applySuggestedWeightsApplied: false,
-          message:
-            'O treinamento terminou, mas os pesos sugeridos não foram aplicados automaticamente porque a pontuação de qualidade ficou abaixo do mínimo configurado.',
-          recommendation:
-            'Rode novamente sem aplicação automática ou diminua o limiar com bastante cautela após revisar os relatórios.',
-        });
-        return;
-      } catch (_fallbackError) {
-        response.status(200).json({
-          ok: true,
-          warning: true,
-          status: 'completed_with_warning',
-          code: 'training_quality_score_too_low',
-          message:
-            'O treinamento terminou, mas a aplicação automática dos pesos foi bloqueada pela regra mínima de qualidade.',
-        });
-        return;
-      }
+    const parsed = parseTrainingGuardrailError(error);
+    if (!parsed) {
+      next(error);
+      return;
     }
 
-    next(error);
+    let settings = null;
+    try {
+      settings = await getTrainingSettings();
+    } catch (_settingsError) {
+      settings = null;
+    }
+
+    response.status(201).json({
+      ok: true,
+      warning: true,
+      status: 'completed_with_warning',
+      message:
+        'O treinamento foi concluído, mas a aplicação automática dos pesos foi bloqueada pelo limiar mínimo de qualidade.',
+      qualityScore: parsed.qualityScore,
+      minRequired: settings?.settings?.minQualityScoreForApply ?? null,
+      settings: settings?.settings || null,
+    });
   }
 });
 

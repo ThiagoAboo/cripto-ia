@@ -11,14 +11,12 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`;
-
     try {
       const payload = await response.json();
       message = payload.message || payload.error || message;
     } catch (_error) {
       // ignore json parse error
     }
-
     throw new Error(message);
   }
 
@@ -106,9 +104,7 @@ export function triggerEmergencyStop(reason = 'manual_emergency_stop') {
 }
 
 export function fetchCooldowns(activeOnly = true, limit = 100) {
-  return request(
-    `/api/control/cooldowns?activeOnly=${activeOnly ? 'true' : 'false'}&limit=${limit}`,
-  );
+  return request(`/api/control/cooldowns?activeOnly=${activeOnly ? 'true' : 'false'}&limit=${limit}`);
 }
 
 export function clearCooldown(symbol) {
@@ -321,11 +317,7 @@ export function runObservabilitySnapshot(payload = {}) {
 }
 
 export function buildObservabilityExportUrl(kind, format = 'json', limit = 500) {
-  const params = new URLSearchParams({
-    kind,
-    format,
-    limit: String(limit),
-  });
+  const params = new URLSearchParams({ kind, format, limit: String(limit) });
   return `${API_BASE_URL}/api/observability/export?${params.toString()}`;
 }
 
@@ -370,6 +362,17 @@ export function fetchTrainingSettings() {
 export function updateTrainingSettings(payload = {}) {
   return request('/api/training/settings', {
     method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchTrainingRegimePresets(limit = 20) {
+  return request(`/api/training/regime-presets?limit=${limit}`);
+}
+
+export function applyTrainingRegimePreset(payload = {}) {
+  return request('/api/training/regime-presets/apply', {
+    method: 'POST',
     body: JSON.stringify(payload),
   });
 }
