@@ -127,7 +127,7 @@ button {
 
 .layout-grid {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);
   gap: 20px;
 }
 
@@ -179,6 +179,21 @@ button {
 
 .button--ghost {
   background: transparent;
+}
+
+.button--danger {
+  border-color: rgba(255, 107, 129, 0.35);
+  background: rgba(255, 107, 129, 0.14);
+}
+
+.button--danger:hover {
+  background: rgba(255, 107, 129, 0.22);
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .status-badge {

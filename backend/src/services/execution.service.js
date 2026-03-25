@@ -2,6 +2,7 @@ const pool = require('../db/pool');
 const { getActiveConfig } = require('./config.service');
 const { getPaperSettings, ensurePaperAccount } = require('./portfolio.service');
 const { getTickers } = require('./market.service');
+const { getRuntimeControl, getCooldownForSymbol, upsertCooldown, applyRiskGuardrails } = require('./control.service');
 
 function roundTo(value, decimals = 12) {
   return Number(Number(value || 0).toFixed(decimals));
@@ -31,6 +32,31 @@ function extractRiskPayload(payload = {}, settings = {}) {
   };
 }
 
+
+function getCooldownPlan(config = {}, side = 'BUY', reason = null, realizedPnl = 0) {
+  const defaultLossMinutes = Number(config?.risk?.cooldownMinutesAfterLoss || 45);
+  const stopLossMinutes = Number(config?.risk?.cooldownMinutesAfterStopLoss || defaultLossMinutes);
+  const normalizedReason = String(reason || '').toLowerCase();
+  const isLosingTrade = Number(realizedPnl || 0) < 0;
+  const stopLikeReason = normalizedReason.includes('stop_loss') || normalizedReason.includes('trailing_stop');
+
+  if (String(side || '').toUpperCase() !== 'SELL' || !isLosingTrade) {
+    return null;
+  }
+
+  const minutes = stopLikeReason ? stopLossMinutes : defaultLossMinutes;
+  if (minutes <= 0) return null;
+
+  const activeUntil = new Date(Date.now() + (minutes * 60 * 1000));
+  return {
+    cooldownType: stopLikeReason ? 'STOP_LOSS' : 'LOSS',
+    reason: stopLikeReason ? 'cooldown_after_stop_loss' : 'cooldown_after_loss',
+    activeUntil,
+    minutes,
+  };
+}
+
+
 async function createRejectedOrder(client, {
   accountKey,
   workerName,
@@ -59,6 +85,8 @@ async function createRejectedOrder(client, {
         price,
         fee_amount,
         slippage_pct,
+        realized_pnl,
+        pnl_pct,
         reason,
         rejection_reason,
         linked_decision_id,
@@ -66,7 +94,7 @@ async function createRejectedOrder(client, {
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, 'REJECTED', $5, 0, $6, 0, 0, 0, $7, $8, $9, $10, $11::jsonb, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, 'REJECTED', $5, 0, $6, 0, 0, 0, $7, 0, 0, $8, $9, $10, $11::jsonb, NOW(), NOW())
       RETURNING
         id,
         account_key AS "accountKey",
@@ -81,6 +109,8 @@ async function createRejectedOrder(client, {
         price,
         fee_amount AS "feeAmount",
         slippage_pct AS "slippagePct",
+        realized_pnl AS "realizedPnl",
+        pnl_pct AS "pnlPct",
         reason,
         rejection_reason AS "rejectionReason",
         linked_decision_id AS "linkedDecisionId",
@@ -113,6 +143,8 @@ async function createRejectedOrder(client, {
     price: Number(row.price),
     feeAmount: Number(row.feeAmount),
     slippagePct: Number(row.slippagePct),
+    realizedPnl: Number(row.realizedPnl || 0),
+    pnlPct: Number(row.pnlPct || 0),
   };
 }
 
@@ -128,6 +160,8 @@ async function createFilledOrder(client, {
   price,
   feeAmount,
   slippagePct,
+  realizedPnl = 0,
+  pnlPct = 0,
   reason,
   linkedDecisionId = null,
   payload = {},
@@ -147,13 +181,15 @@ async function createFilledOrder(client, {
         price,
         fee_amount,
         slippage_pct,
+        realized_pnl,
+        pnl_pct,
         reason,
         linked_decision_id,
         payload,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, 'FILLED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, 'FILLED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, NOW(), NOW())
       RETURNING
         id,
         account_key AS "accountKey",
@@ -168,6 +204,8 @@ async function createFilledOrder(client, {
         price,
         fee_amount AS "feeAmount",
         slippage_pct AS "slippagePct",
+        realized_pnl AS "realizedPnl",
+        pnl_pct AS "pnlPct",
         reason,
         rejection_reason AS "rejectionReason",
         linked_decision_id AS "linkedDecisionId",
@@ -187,6 +225,8 @@ async function createFilledOrder(client, {
       price,
       feeAmount,
       slippagePct,
+      realizedPnl,
+      pnlPct,
       reason,
       linkedDecisionId,
       JSON.stringify(payload),
@@ -203,6 +243,8 @@ async function createFilledOrder(client, {
     price: Number(row.price),
     feeAmount: Number(row.feeAmount),
     slippagePct: Number(row.slippagePct),
+    realizedPnl: Number(row.realizedPnl || 0),
+    pnlPct: Number(row.pnlPct || 0),
   };
 }
 
@@ -403,6 +445,66 @@ async function executePaperOrder({
         rejectionReason: 'paper_mode_required',
         linkedDecisionId,
         payload,
+        slippagePct: settings.slippagePct,
+      });
+      await client.query('COMMIT');
+      return rejected;
+    }
+
+    const runtimeControl = await getRuntimeControl(client);
+
+    if (normalizedSide === 'BUY' && runtimeControl.emergencyStop) {
+      const rejected = await createRejectedOrder(client, {
+        accountKey: settings.accountKey,
+        workerName,
+        symbol: normalizedSymbol,
+        side: normalizedSide,
+        requestedNotional: Number(requestedNotional || 0),
+        requestedQuantity: Number(requestedQuantity || 0),
+        reason,
+        rejectionReason: 'emergency_stop_active',
+        linkedDecisionId,
+        payload,
+        slippagePct: settings.slippagePct,
+      });
+      await client.query('COMMIT');
+      return rejected;
+    }
+
+    if (normalizedSide === 'BUY' && runtimeControl.isPaused) {
+      const rejected = await createRejectedOrder(client, {
+        accountKey: settings.accountKey,
+        workerName,
+        symbol: normalizedSymbol,
+        side: normalizedSide,
+        requestedNotional: Number(requestedNotional || 0),
+        requestedQuantity: Number(requestedQuantity || 0),
+        reason,
+        rejectionReason: 'runtime_pause_active',
+        linkedDecisionId,
+        payload,
+        slippagePct: settings.slippagePct,
+      });
+      await client.query('COMMIT');
+      return rejected;
+    }
+
+    const activeCooldown = normalizedSide === 'BUY' ? await getCooldownForSymbol(normalizedSymbol, client) : null;
+    if (normalizedSide === 'BUY' && activeCooldown) {
+      const rejected = await createRejectedOrder(client, {
+        accountKey: settings.accountKey,
+        workerName,
+        symbol: normalizedSymbol,
+        side: normalizedSide,
+        requestedNotional: Number(requestedNotional || 0),
+        requestedQuantity: Number(requestedQuantity || 0),
+        reason,
+        rejectionReason: 'symbol_cooldown_active',
+        linkedDecisionId,
+        payload: {
+          ...payload,
+          activeCooldown,
+        },
         slippagePct: settings.slippagePct,
       });
       await client.query('COMMIT');
@@ -692,6 +794,8 @@ async function executePaperOrder({
         price: executionPrice,
         feeAmount,
         slippagePct: settings.slippagePct,
+        realizedPnl: 0,
+        pnlPct: 0,
         reason,
         linkedDecisionId,
         payload: {
@@ -819,6 +923,8 @@ async function executePaperOrder({
       [settings.accountKey, netProceeds, realizedPnl, feeAmount],
     );
 
+    const pnlPct = proportionalCostBasis > 0 ? (realizedPnl / proportionalCostBasis) * 100 : 0;
+
     const order = await createFilledOrder(client, {
       accountKey: settings.accountKey,
       workerName,
@@ -831,6 +937,8 @@ async function executePaperOrder({
       price: executionPrice,
       feeAmount,
       slippagePct: settings.slippagePct,
+      realizedPnl,
+      pnlPct,
       reason,
       linkedDecisionId,
       payload: {
@@ -838,12 +946,37 @@ async function executePaperOrder({
         accountMode: 'paper',
         netProceeds: roundTo(netProceeds),
         realizedPnl: roundTo(realizedPnl),
+        pnlPct: roundTo(pnlPct, 6),
       },
     });
 
+    let cooldown = null;
+    const cooldownPlan = getCooldownPlan(config, normalizedSide, reason, realizedPnl);
+    if (cooldownPlan) {
+      cooldown = await upsertCooldown({
+        symbol: normalizedSymbol,
+        cooldownType: cooldownPlan.cooldownType,
+        reason: cooldownPlan.reason,
+        activeUntil: cooldownPlan.activeUntil,
+        payload: {
+          source: 'paper_execution',
+          orderId: order.id,
+          reason,
+          realizedPnl: roundTo(realizedPnl),
+          pnlPct: roundTo(pnlPct, 6),
+          cooldownMinutes: cooldownPlan.minutes,
+        },
+      }, client);
+    }
+
     await snapshotPortfolio(client, settings.accountKey);
+    const guardrail = await applyRiskGuardrails(config, client);
     await client.query('COMMIT');
-    return order;
+    return {
+      ...order,
+      cooldown,
+      guardrail,
+    };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

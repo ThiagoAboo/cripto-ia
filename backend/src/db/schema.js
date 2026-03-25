@@ -20,6 +20,11 @@ const DEFAULT_BOT_CONFIG = {
     trailingStopAtr: 1.2,
     enableTrailingStop: true,
     allowAveragingDown: false,
+    cooldownMinutesAfterLoss: 45,
+    cooldownMinutesAfterStopLoss: 90,
+    maxConsecutiveLosses: 3,
+    dailyMaxLossPct: 3,
+    autoPauseOnCircuitBreaker: true,
   },
   execution: {
     paper: {
@@ -46,6 +51,8 @@ const DEFAULT_BOT_CONFIG = {
     minConfidenceToBuy: 0.64,
     minConfidenceToSell: 0.60,
     decisionMargin: 0.05,
+    respectRuntimePause: true,
+    respectSymbolCooldowns: true,
     expertWeights: {
       trend: 0.21,
       momentum: 0.19,
@@ -103,6 +110,47 @@ async function initializeDatabase() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS bot_config_versions (
+      id BIGSERIAL PRIMARY KEY,
+      config_key TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      config JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (config_key, version)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bot_runtime_controls (
+      control_key TEXT PRIMARY KEY,
+      is_paused BOOLEAN NOT NULL DEFAULT FALSE,
+      emergency_stop BOOLEAN NOT NULL DEFAULT FALSE,
+      pause_reason TEXT,
+      updated_by TEXT NOT NULL DEFAULT 'system',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS symbol_cooldowns (
+      symbol TEXT PRIMARY KEY,
+      cooldown_type TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      active_until TIMESTAMPTZ NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_symbol_cooldowns_active_until
+    ON symbol_cooldowns (active_until DESC);
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS worker_heartbeats (
       worker_name TEXT PRIMARY KEY,
       status TEXT NOT NULL,
@@ -134,6 +182,11 @@ async function initializeDatabase() {
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_ai_decisions_created_at
+    ON ai_decisions (created_at DESC);
   `);
 
   await pool.query(`
@@ -245,6 +298,8 @@ async function initializeDatabase() {
       price NUMERIC(28, 12) NOT NULL DEFAULT 0,
       fee_amount NUMERIC(28, 12) NOT NULL DEFAULT 0,
       slippage_pct NUMERIC(18, 8) NOT NULL DEFAULT 0,
+      realized_pnl NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      pnl_pct NUMERIC(18, 8) NOT NULL DEFAULT 0,
       reason TEXT,
       rejection_reason TEXT,
       linked_decision_id BIGINT REFERENCES ai_decisions(id) ON DELETE SET NULL,
@@ -253,6 +308,9 @@ async function initializeDatabase() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  await pool.query(`ALTER TABLE paper_orders ADD COLUMN IF NOT EXISTS realized_pnl NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE paper_orders ADD COLUMN IF NOT EXISTS pnl_pct NUMERIC(18, 8) NOT NULL DEFAULT 0;`);
 
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_paper_orders_created_at
@@ -276,11 +334,6 @@ async function initializeDatabase() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_account_created_at
     ON portfolio_snapshots (account_key, created_at DESC);
-  `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_ai_decisions_created_at
-    ON ai_decisions (created_at DESC);
   `);
 
   await pool.query(`
@@ -371,6 +424,24 @@ async function initializeDatabase() {
       ON CONFLICT (config_key) DO NOTHING;
     `,
     [JSON.stringify(DEFAULT_BOT_CONFIG)],
+  );
+
+  await pool.query(
+    `
+      INSERT INTO bot_config_versions (config_key, version, config)
+      SELECT config_key, version, config
+      FROM bot_configs
+      WHERE config_key = 'active'
+      ON CONFLICT (config_key, version) DO NOTHING;
+    `,
+  );
+
+  await pool.query(
+    `
+      INSERT INTO bot_runtime_controls (control_key, is_paused, emergency_stop, pause_reason, updated_by, metadata)
+      VALUES ('active', FALSE, FALSE, NULL, 'system', '{}'::jsonb)
+      ON CONFLICT (control_key) DO NOTHING;
+    `,
   );
 }
 

@@ -240,6 +240,8 @@ async function listPaperOrders({ limit = 50 } = {}, configOverride = null) {
         price,
         fee_amount AS "feeAmount",
         slippage_pct AS "slippagePct",
+        realized_pnl AS "realizedPnl",
+        pnl_pct AS "pnlPct",
         reason,
         rejection_reason AS "rejectionReason",
         linked_decision_id AS "linkedDecisionId",
@@ -263,6 +265,8 @@ async function listPaperOrders({ limit = 50 } = {}, configOverride = null) {
     price: Number(row.price),
     feeAmount: Number(row.feeAmount),
     slippagePct: Number(row.slippagePct),
+    realizedPnl: Number(row.realizedPnl || 0),
+    pnlPct: Number(row.pnlPct || 0),
   }));
 }
 

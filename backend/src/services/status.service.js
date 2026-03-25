@@ -1,12 +1,14 @@
 const pool = require('../db/pool');
-const { getActiveConfig } = require('./config.service');
+const { getActiveConfig, getConfigHistory } = require('./config.service');
 const { getPaperSummary, listPaperOrders } = require('./portfolio.service');
 const { getSocialSummary, getSocialScores, listSocialAlerts } = require('./social.service');
 const { getExecutionStatus } = require('./executionAdapter.service');
+const { getRuntimeControl, listCooldowns, getRiskGuardrailSummary } = require('./control.service');
 
 async function getSystemStatus() {
   const [
     configRow,
+    configHistory,
     workers,
     recentEvents,
     recentDecisions,
@@ -17,8 +19,12 @@ async function getSystemStatus() {
     topSocialScores,
     recentSocialAlerts,
     execution,
+    control,
+    cooldowns,
+    guardrails,
   ] = await Promise.all([
     getActiveConfig(),
+    getConfigHistory({ limit: 5 }),
     pool.query(
       `
         SELECT worker_name, status, last_seen_at, payload
@@ -58,10 +64,19 @@ async function getSystemStatus() {
     getSocialScores({ limit: 12 }),
     listSocialAlerts({ limit: 20 }),
     getExecutionStatus(),
+    getRuntimeControl(),
+    listCooldowns({ activeOnly: true, limit: 20 }),
+    getRiskGuardrailSummary(),
   ]);
 
   return {
     configVersion: configRow?.version ?? 0,
+    configHistory,
+    control: {
+      ...control,
+      activeCooldowns: cooldowns,
+      guardrails,
+    },
     workers: workers.rows,
     recentEvents: recentEvents.rows,
     recentDecisions: recentDecisions.rows.map((row) => ({

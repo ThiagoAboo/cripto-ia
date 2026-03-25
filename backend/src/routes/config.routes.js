@@ -1,5 +1,5 @@
 const express = require('express');
-const { getActiveConfig, updateActiveConfig } = require('../services/config.service');
+const { getActiveConfig, getConfigHistory, updateActiveConfig } = require('../services/config.service');
 const { publish } = require('../services/eventBus.service');
 
 const router = express.Router();
@@ -8,6 +8,16 @@ router.get('/', async (_request, response, next) => {
   try {
     const configRow = await getActiveConfig();
     response.json(configRow);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/history', async (request, response, next) => {
+  try {
+    const limit = Number(request.query.limit || 20);
+    const items = await getConfigHistory({ limit });
+    response.json({ count: items.length, items });
   } catch (error) {
     next(error);
   }

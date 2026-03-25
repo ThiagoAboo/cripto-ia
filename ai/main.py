@@ -169,6 +169,12 @@ def get_social_scores(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     return {item["symbol"]: item for item in payload.get("items", [])}
 
 
+def get_control_state() -> Dict[str, Any]:
+    response = requests.get(f"{BACKEND_URL}/api/control", timeout=REQUEST_TIMEOUT_SEC)
+    response.raise_for_status()
+    return response.json()
+
+
 def send_heartbeat(status: str, payload: Dict[str, Any]) -> None:
     response = session.post(
         f"{BACKEND_URL}/internal/heartbeat",
@@ -555,7 +561,7 @@ def manage_open_positions(portfolio: Dict[str, Any], tickers: Dict[str, Dict[str
             })
 
 
-def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles: List[Dict[str, Any]], ticker: Dict[str, Any], config: Dict[str, Any], portfolio: Dict[str, Any], symbol: str, social_score: Dict[str, Any]) -> Dict[str, Any]:
+def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles: List[Dict[str, Any]], ticker: Dict[str, Any], config: Dict[str, Any], portfolio: Dict[str, Any], symbol: str, social_score: Dict[str, Any], control_state: Dict[str, Any]) -> Dict[str, Any]:
     ai_config = config.get("ai", {})
     social_cfg = config.get("social", {})
     weights = ai_config.get("expertWeights", {})
@@ -585,6 +591,11 @@ def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles:
     confidence = max(buy_score, sell_score)
 
     social_risk = float((social_score or {}).get("socialRisk", 0.0) or 0.0)
+    runtime_paused = bool((control_state or {}).get("isPaused", False))
+    emergency_stop = bool((control_state or {}).get("emergencyStop", False))
+    active_cooldowns = {item.get("symbol"): item for item in (control_state or {}).get("activeCooldowns", [])}
+    cooldown_active = symbol in active_cooldowns
+
     if experts["liquidity"]["buy"] < 0.30:
         blocked = True
         action = "BLOCK"
@@ -595,6 +606,21 @@ def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles:
         action = "BLOCK"
         reason = "social_extreme_risk"
         confidence = clamp(social_risk / 100, 0.0, 1.0)
+    elif emergency_stop:
+        blocked = True
+        action = "BLOCK"
+        reason = "emergency_stop_active"
+        confidence = 0.99
+    elif runtime_paused and buy_score >= sell_score:
+        blocked = True
+        action = "BLOCK"
+        reason = "runtime_pause_active"
+        confidence = max(buy_score, 0.75)
+    elif cooldown_active and buy_score >= sell_score:
+        blocked = True
+        action = "BLOCK"
+        reason = "symbol_cooldown_active"
+        confidence = max(buy_score, 0.70)
     elif experts["risk"]["buy"] == 0.0 and buy_score >= sell_score:
         blocked = True
         action = "BLOCK"
@@ -627,6 +653,11 @@ def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles:
         },
         "riskPlan": build_risk_plan(features, config),
         "social": social_score or {},
+        "control": {
+            "isPaused": bool((control_state or {}).get("isPaused", False)),
+            "emergencyStop": bool((control_state or {}).get("emergencyStop", False)),
+            "cooldownActive": symbol in {item.get("symbol") for item in (control_state or {}).get("activeCooldowns", [])},
+        },
     }
 
 
@@ -649,6 +680,7 @@ def loop_once() -> None:
     tickers = get_tickers(symbols, refresh=MARKET_REFRESH)
     portfolio = get_portfolio()
     social_scores = get_social_scores(symbols)
+    control_state = get_control_state()
 
     send_heartbeat(
         "running",
@@ -662,6 +694,11 @@ def loop_once() -> None:
             "tradingMode": trading_mode,
             "executionEndpoint": "/internal/orders/execute",
             "socialEnabled": social_cfg.get("enabled", True),
+            "runtimeControl": {
+                "isPaused": bool(control_state.get("isPaused", False)),
+                "emergencyStop": bool(control_state.get("emergencyStop", False)),
+                "activeCooldownsCount": len(control_state.get("activeCooldowns", [])),
+            },
             "portfolio": {
                 "equity": portfolio.get("equity", 0),
                 "cashBalance": portfolio.get("cashBalance", 0),
@@ -679,6 +716,8 @@ def loop_once() -> None:
             "portfolioEquity": portfolio.get("equity", 0),
             "openPositionsCount": portfolio.get("openPositionsCount", 0),
             "socialScoresCount": len(social_scores),
+            "runtimePaused": bool(control_state.get("isPaused", False)),
+            "emergencyStop": bool(control_state.get("emergencyStop", False)),
         },
     )
 
@@ -702,7 +741,7 @@ def loop_once() -> None:
 
         ticker = tickers.get(symbol, {})
         social_score = social_scores.get(symbol, {})
-        evaluation = evaluate_symbol(primary_candles, confirmation_candles, ticker, config, portfolio, symbol, social_score)
+        evaluation = evaluate_symbol(primary_candles, confirmation_candles, ticker, config, portfolio, symbol, social_score, control_state)
 
         decision_payload = {
             "symbol": symbol,
