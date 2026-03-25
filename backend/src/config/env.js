@@ -40,12 +40,15 @@ module.exports = {
     reconciliationIntervalSec: Number(getEnv('SCHEDULER_RECONCILIATION_INTERVAL_SEC', 900)),
     readinessIntervalSec: Number(getEnv('SCHEDULER_READINESS_INTERVAL_SEC', 600)),
     alertScanIntervalSec: Number(getEnv('SCHEDULER_ALERT_SCAN_INTERVAL_SEC', 120)),
+    observabilitySnapshotIntervalSec: Number(getEnv('SCHEDULER_OBSERVABILITY_SNAPSHOT_INTERVAL_SEC', 300)),
   },
   execution: {
     liveEnabled: getBooleanEnv('EXECUTION_LIVE_ENABLED', false),
     defaultMode: getEnv('EXECUTION_DEFAULT_MODE', 'paper'),
     healthcheckTimeoutMs: Number(getEnv('EXECUTION_HEALTHCHECK_TIMEOUT_MS', 12000)),
     reconciliationLookbackHours: Number(getEnv('EXECUTION_RECONCILIATION_LOOKBACK_HOURS', 24)),
+    previewTicketTtlSec: Number(getEnv('EXECUTION_PREVIEW_TICKET_TTL_SEC', 600)),
+    readinessFreshnessMinutes: Number(getEnv('EXECUTION_READINESS_FRESHNESS_MINUTES', 30)),
     binance: {
       apiBaseUrl: getEnv('BINANCE_TRADE_API_BASE_URL', 'https://api.binance.com').replace(/\/$/, ''),
       apiKey: getEnv('BINANCE_API_KEY', ''),
@@ -62,6 +65,10 @@ module.exports = {
     requireTestnetForLiveCandidate: getBooleanEnv('POLICY_REQUIRE_TESTNET_FOR_LIVE_CANDIDATE', true),
     requireDryRunForLiveCandidate: getBooleanEnv('POLICY_REQUIRE_DRY_RUN_FOR_LIVE_CANDIDATE', true),
     requireExplicitConfirmationForLiveCandidate: getBooleanEnv('POLICY_REQUIRE_EXPLICIT_CONFIRMATION_FOR_LIVE_CANDIDATE', true),
+  },
+  observability: {
+    metricsRetentionDays: Number(getEnv('OBSERVABILITY_METRICS_RETENTION_DAYS', 30)),
+    exportMaxRows: Number(getEnv('OBSERVABILITY_EXPORT_MAX_ROWS', 5000)),
   },
   notifications: {
     enabled: getBooleanEnv('NOTIFICATIONS_ENABLED', false),

@@ -6,6 +6,7 @@ const { evaluateReadiness, getLatestReadinessReport } = require('./readiness.ser
 const { getProviderStatuses } = require('./social.service');
 const { getRuntimeControl } = require('./control.service');
 const { syncAlertState, listActiveAlerts } = require('./alerts.service');
+const { insertObservabilitySnapshot, cleanupObservabilitySnapshots } = require('./observability.service');
 
 const timers = [];
 let started = false;
@@ -148,6 +149,9 @@ async function runNamedJob(jobKey, { requestedBy = 'scheduler', triggerSource = 
       output = await evaluateReadiness({ requestedBy, triggerSource });
     } else if (jobKey === 'alert_scan') {
       output = await runAlertScan({ requestedBy, triggerSource });
+    } else if (jobKey === 'observability_snapshot') {
+      output = await insertObservabilitySnapshot({ source: triggerSource });
+      await cleanupObservabilitySnapshots();
     } else {
       throw new Error(`unknown_job_key:${jobKey}`);
     }
@@ -175,7 +179,7 @@ function scheduleEvery(jobKey, seconds) {
 function startSchedulers() {
   if (started || !env.scheduling.enabled) return;
   started = true;
-  ['readiness_assessment', 'alert_scan'].forEach((jobKey) => {
+  ['readiness_assessment', 'alert_scan', 'observability_snapshot'].forEach((jobKey) => {
     setTimeout(() => {
       runNamedJob(jobKey, { requestedBy: `startup:${jobKey}`, triggerSource: 'startup' }).catch((error) => {
         console.error(`Startup job failed [${jobKey}]:`, error.message);
@@ -186,6 +190,7 @@ function startSchedulers() {
   scheduleEvery('execution_reconciliation', env.scheduling.reconciliationIntervalSec);
   scheduleEvery('readiness_assessment', env.scheduling.readinessIntervalSec);
   scheduleEvery('alert_scan', env.scheduling.alertScanIntervalSec);
+  scheduleEvery('observability_snapshot', env.scheduling.observabilitySnapshotIntervalSec);
 }
 
 function stopSchedulers() {

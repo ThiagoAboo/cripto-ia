@@ -52,6 +52,7 @@ router.post('/live-submit', async (request, response, next) => {
       reason = 'manual_supervised_live_submit',
       confirmationPhrase = '',
       payload = {},
+      previewTicketId = null,
     } = request.body || {};
 
     if (!symbol || !side) {
@@ -70,6 +71,7 @@ router.post('/live-submit', async (request, response, next) => {
       forceMode: 'live',
       actor: requestedBy,
       confirmationPhrase,
+      previewTicketId,
     });
 
     response.status(201).json(result);

@@ -20,6 +20,8 @@ import {
   setMaintenanceMode,
   clearMaintenanceMode,
   sendTestNotification,
+  runObservabilitySnapshot,
+  buildObservabilityExportUrl,
   fetchOrders,
   fetchPortfolio,
   fetchSocialAlerts,
@@ -175,6 +177,7 @@ const DEFAULT_STATUS = {
   recentJobRuns: [],
   notifications: { enabled: false, channels: [], recentDeliveries: [] },
   policy: { recentReports: [] },
+  observability: { current: null, recentSnapshots: [], exportKinds: [] },
   control: { isPaused: false, emergencyStop: false, maintenanceMode: false, activeCooldowns: [], guardrails: {} },
   configHistory: [],
   recentBacktests: [],
@@ -441,6 +444,7 @@ export default function App() {
   const execution = status.execution || DEFAULT_STATUS.execution;
   const notifications = status.notifications || DEFAULT_STATUS.notifications;
   const policyReports = status.policy?.recentReports || [];
+  const observability = status.observability || DEFAULT_STATUS.observability;
 
   const summaryCards = useMemo(() => {
     const portfolio = currentPortfolio || { baseCurrency: 'USDT' };
@@ -755,6 +759,7 @@ const handleSubmitLiveOrder = async () => {
       payload: {
         source: 'dashboard',
       },
+      previewTicketId: executionPreview?.previewTicket?.id || null,
     });
     setExecutionPreview((current) => current ? { ...current, lastSubmitResult: result } : { lastSubmitResult: result });
     setSaveMessage(`Execução supervisionada concluída com status ${result.status}.`);
@@ -795,6 +800,20 @@ const handleOpsAction = async (actionName, action, successMessage) => {
     await loadEverything();
   } catch (requestError) {
     setError(requestError.message || 'Falha ao atualizar maintenance mode.');
+  } finally {
+    setOpsActionLoading('');
+  }
+};
+
+const handleRunObservabilitySnapshot = async () => {
+  setOpsActionLoading('observability-snapshot');
+  setError('');
+  try {
+    await runObservabilitySnapshot({ source: 'dashboard' });
+    setSaveMessage('Snapshot de observabilidade gerado.');
+    await loadEverything();
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao gerar snapshot de observabilidade.');
   } finally {
     setOpsActionLoading('');
   }
@@ -1014,6 +1033,7 @@ const handleSendTestNotification = async (channel = 'all') => {
                       <div className="muted">Preço: {formatMoney(executionPreview.price || 0, draftConfig?.trading?.baseCurrency || 'USDT')}</div>
                       <div className="muted">Notional: {formatMoney(executionPreview.estimatedNotional || executionPreview.normalizedNotional || 0, draftConfig?.trading?.baseCurrency || 'USDT')}</div>
                       <div className="muted">Quantidade: {formatNumber(executionPreview.normalizedQuantity || 0, 6)}</div>
+                      <div className="muted">Ticket: {executionPreview.previewTicket?.id || 'n/a'} • expira em {formatDateTime(executionPreview.previewTicket?.expiresAt)}</div>
                     </div>
                     <div className="list-item list-item--column">
                       <strong>Warnings</strong>
@@ -1053,6 +1073,95 @@ const handleSendTestNotification = async (channel = 'all') => {
                   <div className="button-row">
                     <Pill tone={item.status === 'ok' || item.status === 'dry_run' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{item.status}</Pill>
                     {item.confirmationRequired ? <Pill tone="high">confirmação</Pill> : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+
+
+
+          <Section
+            title="Observabilidade e exportação"
+            subtitle="Métricas consolidadas, snapshots agendados e export de logs para auditoria externa."
+            actions={(
+              <div className="button-row">
+                <button
+                  className="button"
+                  disabled={opsActionLoading === 'observability-snapshot'}
+                  onClick={handleRunObservabilitySnapshot}
+                >
+                  {opsActionLoading === 'observability-snapshot' ? 'Gerando...' : 'Gerar snapshot'}
+                </button>
+                <a className="button button--ghost" href={buildObservabilityExportUrl('metrics_snapshots', 'json', 200)} target="_blank" rel="noreferrer">Export métricas JSON</a>
+                <a className="button button--ghost" href={buildObservabilityExportUrl('execution_action_logs', 'csv', 1000)} target="_blank" rel="noreferrer">Export action logs CSV</a>
+                <a className="button button--ghost" href={buildObservabilityExportUrl('ai_decisions', 'csv', 1000)} target="_blank" rel="noreferrer">Export decisões CSV</a>
+              </div>
+            )}
+          >
+            <div className="metric-grid">
+              <StatCard
+                label="Eventos 24h"
+                value={formatNumber(observability?.current?.summary?.traffic24h?.systemEvents || 0, 0)}
+                tone="neutral"
+              />
+              <StatCard
+                label="Decisões 24h"
+                value={formatNumber(observability?.current?.summary?.traffic24h?.aiDecisions || 0, 0)}
+                tone="neutral"
+              />
+              <StatCard
+                label="Ordens paper 24h"
+                value={formatNumber(observability?.current?.summary?.traffic24h?.paperOrders || 0, 0)}
+                tone="neutral"
+              />
+              <StatCard
+                label="Workers stale"
+                value={formatNumber(observability?.current?.summary?.workers?.stale || 0, 0)}
+                tone={(observability?.current?.summary?.workers?.stale || 0) > 0 ? 'danger' : 'positive'}
+              />
+            </div>
+            <div className="list-stack">
+              <div className="list-item list-item--column">
+                <div>
+                  <strong>Snapshot atual</strong>
+                  <div className="muted">
+                    {formatDateTime(observability?.current?.createdAt)} • fonte: {observability?.current?.source || 'n/a'}
+                  </div>
+                </div>
+                <div className="button-row">
+                  <Pill tone={(observability?.current?.summary?.alerts?.critical || 0) > 0 ? 'high' : 'buy'}>
+                    alertas críticos: {formatNumber(observability?.current?.summary?.alerts?.critical || 0, 0)}
+                  </Pill>
+                  <Pill tone={observability?.current?.summary?.runtime?.maintenanceMode ? 'warning' : 'info'}>
+                    maintenance: {observability?.current?.summary?.runtime?.maintenanceMode ? 'on' : 'off'}
+                  </Pill>
+                </div>
+              </div>
+
+              {(observability?.current?.summary?.workers?.items || []).slice(0, 4).map((item) => (
+                <div key={item.workerName} className="list-item list-item--column">
+                  <div>
+                    <strong>{item.workerName}</strong>
+                    <div className="muted">Último heartbeat: {formatDateTime(item.lastSeenAt)} • idade: {formatNumber(item.ageSec || 0, 0)}s</div>
+                  </div>
+                  <div className="button-row">
+                    <Pill tone={item.stale ? 'high' : 'buy'}>{item.stale ? 'stale' : 'ok'}</Pill>
+                    <span className="muted">status: {item.status}</span>
+                  </div>
+                </div>
+              ))}
+
+              {(observability?.recentSnapshots || []).slice(0, 5).map((item) => (
+                <div key={item.id} className="list-item list-item--column">
+                  <div>
+                    <strong>Snapshot #{item.id}</strong>
+                    <div className="muted">
+                      {formatDateTime(item.createdAt)} • eventos: {formatNumber(item.summary?.traffic24h?.systemEvents || 0, 0)} • decisões: {formatNumber(item.summary?.traffic24h?.aiDecisions || 0, 0)}
+                    </div>
+                  </div>
+                  <div className="button-row">
+                    <Pill tone={(item.summary?.alerts?.critical || 0) > 0 ? 'high' : 'info'}>críticos: {formatNumber(item.summary?.alerts?.critical || 0, 0)}</Pill>
                   </div>
                 </div>
               ))}

@@ -5,6 +5,9 @@ const { getActiveConfig } = require('./config.service');
 const { publish } = require('./eventBus.service');
 const { executePaperOrder } = require('./execution.service');
 const { getTickers, getSymbols } = require('./market.service');
+const { getRuntimeControl } = require('./control.service');
+const { getLatestReadinessReport } = require('./readiness.service');
+const { listActiveAlerts } = require('./alerts.service');
 
 function bool(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
@@ -23,6 +26,61 @@ function roundDownToStep(value, step) {
 function sanitizeNumber(value, fallback = 0) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function buildPreviewHash({
+  symbol,
+  side,
+  normalizedNotional = 0,
+  normalizedQuantity = 0,
+  configVersion = 0,
+}) {
+  const raw = [
+    String(symbol || '').toUpperCase(),
+    String(side || '').toUpperCase(),
+    Number(normalizedNotional || 0).toFixed(8),
+    Number(normalizedQuantity || 0).toFixed(8),
+    String(configVersion || 0),
+  ].join('|');
+
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+async function createPreviewTicket({
+  actor = 'dashboard',
+  symbol,
+  side,
+  previewHash,
+  previewPayload = {},
+}) {
+  const ttlSec = Math.max(60, Number(env.execution.previewTicketTtlSec || 600));
+  const result = await pool.query(
+    `
+      INSERT INTO execution_preview_tickets (
+        actor, symbol, side, preview_hash, preview_payload, expires_at, created_at
+      )
+      VALUES ($1,$2,$3,$4,$5::jsonb,NOW() + ($6::text || ' seconds')::interval,NOW())
+      RETURNING id, actor, symbol, side, preview_hash AS "previewHash", expires_at AS "expiresAt", used_at AS "usedAt", created_at AS "createdAt"
+    `,
+    [actor, String(symbol).toUpperCase(), String(side).toUpperCase(), previewHash, JSON.stringify(previewPayload || {}), String(ttlSec)],
+  );
+  return result.rows[0];
+}
+
+async function consumePreviewTicket({ id, previewHash }) {
+  const result = await pool.query(
+    `
+      UPDATE execution_preview_tickets
+      SET used_at = NOW()
+      WHERE id = $1
+        AND preview_hash = $2
+        AND used_at IS NULL
+        AND expires_at > NOW()
+      RETURNING id, actor, symbol, side, preview_hash AS "previewHash", preview_payload AS "previewPayload", expires_at AS "expiresAt", used_at AS "usedAt", created_at AS "createdAt"
+    `,
+    [id, previewHash],
+  );
+  return result.rows[0] || null;
 }
 
 function buildExecutionSummary(config = {}) {
@@ -320,6 +378,14 @@ async function buildOrderPreview({
     warnings.push('dry_run_enabled');
   }
 
+  const previewHash = buildPreviewHash({
+    symbol: normalizedSymbol,
+    side: normalizedSide,
+    normalizedNotional,
+    normalizedQuantity,
+    configVersion: configRow?.version || 0,
+  });
+
   const preview = {
     mode: summary.mode,
     provider: summary.provider,
@@ -348,7 +414,16 @@ async function buildOrderPreview({
       orderTypes: rules.orderTypes,
     },
     configVersion: configRow?.version || 0,
+    previewHash,
   };
+
+  const previewTicket = await createPreviewTicket({
+    actor,
+    symbol: normalizedSymbol,
+    side: normalizedSide,
+    previewHash,
+    previewPayload: preview,
+  });
 
   const logRow = await createExecutionActionLog({
     actionType: 'preview_order',
@@ -368,6 +443,7 @@ async function buildOrderPreview({
 
   return {
     ...preview,
+    previewTicket,
     log,
   };
 }
@@ -486,10 +562,136 @@ async function submitBinanceLiveOrder({
   payload = {},
   actor = 'worker',
   confirmationPhrase = '',
+  previewTicketId = null,
 }) {
   const liveModeEnabled = configSummary.backendLiveEnabled && configSummary.liveConfigEnabled;
   const provider = configSummary.provider;
   const preview = await buildOrderPreview({ symbol, side, requestedNotional, requestedQuantity, actor });
+
+  if (configSummary.supervised && !previewTicketId) {
+    const rejected = await createLiveOrderAttempt({
+      provider,
+      workerName,
+      symbol,
+      side,
+      status: 'REJECTED',
+      liveModeEnabled,
+      dryRun: configSummary.dryRun,
+      requestedNotional: Number(preview.normalizedNotional || 0),
+      requestedQuantity: Number(preview.normalizedQuantity || 0),
+      reason,
+      rejectionReason: 'preview_ticket_required',
+      linkedDecisionId,
+      payload: { ...payload, preview },
+    });
+    await createExecutionActionLog({
+      actionType: 'submit_live_order',
+      actor,
+      mode: 'live',
+      symbol,
+      side,
+      status: 'rejected',
+      confirmationRequired: true,
+      payload: { rejectionReason: 'preview_ticket_required', preview },
+    });
+    return rejected;
+  }
+
+  const previewTicket = configSummary.supervised
+    ? await consumePreviewTicket({ id: Number(previewTicketId), previewHash: preview.previewHash })
+    : null;
+
+  if (configSummary.supervised && !previewTicket) {
+    const rejected = await createLiveOrderAttempt({
+      provider,
+      workerName,
+      symbol,
+      side,
+      status: 'REJECTED',
+      liveModeEnabled,
+      dryRun: configSummary.dryRun,
+      requestedNotional: Number(preview.normalizedNotional || 0),
+      requestedQuantity: Number(preview.normalizedQuantity || 0),
+      reason,
+      rejectionReason: 'preview_ticket_invalid_or_expired',
+      linkedDecisionId,
+      payload: { ...payload, preview, previewTicketId },
+    });
+    await createExecutionActionLog({
+      actionType: 'submit_live_order',
+      actor,
+      mode: 'live',
+      symbol,
+      side,
+      status: 'rejected',
+      confirmationRequired: true,
+      payload: { rejectionReason: 'preview_ticket_invalid_or_expired', preview, previewTicketId },
+    });
+    return rejected;
+  }
+
+  const [runtimeControl, latestReadiness, activeAlerts] = await Promise.all([
+    getRuntimeControl(),
+    getLatestReadinessReport(),
+    listActiveAlerts({ limit: 50, status: 'open' }),
+  ]);
+
+  const readinessFreshEnough = latestReadiness?.createdAt
+    ? (Date.now() - new Date(latestReadiness.createdAt).getTime()) <= Math.max(1, Number(env.execution.readinessFreshnessMinutes || 30)) * 60 * 1000
+    : false;
+
+  const criticalAlerts = activeAlerts.filter((item) => String(item.severity || '').toLowerCase() === 'critical');
+
+  if (runtimeControl.emergencyStop || runtimeControl.maintenanceMode || !readinessFreshEnough || latestReadiness?.status === 'blocked' || criticalAlerts.length) {
+    const rejected = await createLiveOrderAttempt({
+      provider,
+      workerName,
+      symbol,
+      side,
+      status: 'REJECTED',
+      liveModeEnabled,
+      dryRun: configSummary.dryRun,
+      requestedNotional: Number(preview.normalizedNotional || 0),
+      requestedQuantity: Number(preview.normalizedQuantity || 0),
+      reason,
+      rejectionReason: runtimeControl.emergencyStop
+        ? 'runtime_emergency_stop'
+        : runtimeControl.maintenanceMode
+          ? 'runtime_maintenance_mode'
+          : !readinessFreshEnough
+            ? 'readiness_not_recent'
+            : latestReadiness?.status === 'blocked'
+              ? 'readiness_blocked'
+              : 'critical_alerts_open',
+      linkedDecisionId,
+      payload: {
+        ...payload,
+        preview,
+        runtime: runtimeControl,
+        latestReadiness,
+        criticalAlertsCount: criticalAlerts.length,
+        previewTicketId,
+      },
+    });
+    await createExecutionActionLog({
+      actionType: 'submit_live_order',
+      actor,
+      mode: 'live',
+      symbol,
+      side,
+      status: 'rejected',
+      confirmationRequired: true,
+      payload: {
+        rejectionReason: rejected.rejectionReason,
+        preview,
+        runtime: runtimeControl,
+        latestReadiness,
+        criticalAlertsCount: criticalAlerts.length,
+        previewTicketId,
+      },
+    });
+    return rejected;
+  }
 
   if (configSummary.requireExplicitConfirmation && String(confirmationPhrase || '') !== String(configSummary.confirmationPhrase || '')) {
     const rejected = await createLiveOrderAttempt({
@@ -728,6 +930,7 @@ async function executeOrder({
   forceMode = null,
   actor = 'worker',
   confirmationPhrase = '',
+  previewTicketId = null,
 }) {
   const configRow = await getActiveConfig();
   const config = configRow?.config || {};
@@ -760,6 +963,7 @@ async function executeOrder({
       payload,
       actor,
       confirmationPhrase,
+      previewTicketId,
     });
   }
 

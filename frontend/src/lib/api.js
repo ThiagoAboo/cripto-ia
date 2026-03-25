@@ -312,3 +312,20 @@ export function evaluatePromotionPolicy(payload = {}) {
     body: JSON.stringify(payload),
   });
 }
+
+
+export function runObservabilitySnapshot(payload = {}) {
+  return request('/api/observability/snapshot', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function buildObservabilityExportUrl(kind, format = 'json', limit = 500) {
+  const params = new URLSearchParams({
+    kind,
+    format,
+    limit: String(limit),
+  });
+  return `${API_BASE_URL}/api/observability/export?${params.toString()}`;
+}

@@ -836,6 +836,46 @@ await pool.query(`
     ON policy_gate_reports (created_at DESC);
   `);
 
+
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS execution_preview_tickets (
+      id BIGSERIAL PRIMARY KEY,
+      actor TEXT NOT NULL DEFAULT 'system',
+      symbol VARCHAR(20) NOT NULL,
+      side VARCHAR(10) NOT NULL,
+      preview_hash TEXT NOT NULL,
+      preview_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_execution_preview_tickets_created_at
+    ON execution_preview_tickets (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_execution_preview_tickets_expires_at
+    ON execution_preview_tickets (expires_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS observability_metric_snapshots (
+      id BIGSERIAL PRIMARY KEY,
+      source TEXT NOT NULL DEFAULT 'system',
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_observability_metric_snapshots_created_at
+    ON observability_metric_snapshots (created_at DESC);
+  `);
+
   await pool.query(
     `
       INSERT INTO bot_runtime_controls (control_key, is_paused, emergency_stop, pause_reason, updated_by, metadata)
