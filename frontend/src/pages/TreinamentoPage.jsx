@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  activateTrainingRuntimeRegime,
   applyTrainingRegimePreset,
   fetchTrainingDriftReports,
   fetchTrainingExpertReports,
@@ -7,9 +8,11 @@ import {
   fetchTrainingQualityReports,
   fetchTrainingRegimePresets,
   fetchTrainingRuns,
+  fetchTrainingRuntime,
   fetchTrainingSettings,
   fetchTrainingSummary,
   runTrainingAssistance,
+  syncTrainingRuntime,
   updateTrainingSettings,
 } from '../lib/api';
 
@@ -44,724 +47,607 @@ function translateStatus(value) {
     low: 'baixo',
     moderate: 'moderado',
     high: 'alto',
+    ready: 'pronto',
+    idle: 'ocioso',
+    running: 'em execução',
   };
   return map[String(value || '').toLowerCase()] || (value ? String(value) : '—');
 }
 
-function Notice({ type = 'info', title, children, detail }) {
-  const colors = {
+const shellCardStyle = {
+  background: '#111827',
+  border: '1px solid #1f2937',
+  borderRadius: 16,
+  padding: 18,
+  color: '#e5e7eb',
+  boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+};
+
+const sectionGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+  gap: 16,
+};
+
+const primaryButtonStyle = {
+  background: '#2563eb',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 10,
+  padding: '10px 14px',
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+
+const secondaryButtonStyle = {
+  background: '#1f2937',
+  color: '#e5e7eb',
+  border: '1px solid #374151',
+  borderRadius: 10,
+  padding: '10px 14px',
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+
+function SectionTitle({ children }) {
+  return <h3 style={{ margin: 0, marginBottom: 12, fontSize: 18 }}>{children}</h3>;
+}
+
+function Card({ title, subtitle, extra, children }) {
+  return (
+    <section style={shellCardStyle}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20 }}>{title}</h2>
+          {subtitle ? <p style={{ margin: '8px 0 0', color: '#9ca3af' }}>{subtitle}</p> : null}
+        </div>
+        {extra}
+      </div>
+      <div style={{ marginTop: 16 }}>{children}</div>
+    </section>
+  );
+}
+
+function Notice({ type = 'info', title, children }) {
+  const palettes = {
     info: { background: '#0f172a', border: '#1d4ed8', color: '#dbeafe' },
     success: { background: '#052e16', border: '#16a34a', color: '#dcfce7' },
     warning: { background: '#422006', border: '#d97706', color: '#fef3c7' },
     error: { background: '#450a0a', border: '#dc2626', color: '#fee2e2' },
   };
-  const palette = colors[type] || colors.info;
+  const palette = palettes[type] || palettes.info;
+
   return (
     <div
       style={{
         background: palette.background,
         border: `1px solid ${palette.border}`,
         color: palette.color,
-        borderRadius: 16,
-        padding: '14px 16px',
-        display: 'grid',
-        gap: 6,
+        borderRadius: 12,
+        padding: 12,
       }}
     >
-      {title ? <strong>{title}</strong> : null}
+      {title ? <strong style={{ display: 'block', marginBottom: 6 }}>{title}</strong> : null}
       <div>{children}</div>
-      {detail ? <small style={{ opacity: 0.9 }}>{detail}</small> : null}
     </div>
   );
 }
 
-function Card({ title, subtitle, children, extra = null }) {
-  return (
-    <section
-      style={{
-        display: 'grid',
-        gap: 14,
-        background: '#111827',
-        border: '1px solid #1f2937',
-        borderRadius: 20,
-        padding: 20,
-      }}
-    >
-      <header style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
-        <div style={{ display: 'grid', gap: 4 }}>
-          <h2 style={{ margin: 0, fontSize: 20 }}>{title}</h2>
-          {subtitle ? <p style={{ margin: 0, color: '#9ca3af' }}>{subtitle}</p> : null}
-        </div>
-        {extra}
-      </header>
-      {children}
-    </section>
-  );
-}
+function WeightList({ weights }) {
+  const entries = Object.entries(weights || {});
+  if (!entries.length) return <div style={{ color: '#9ca3af' }}>Sem pesos disponíveis.</div>;
 
-function Metric({ label, value, hint }) {
   return (
-    <div style={{ background: '#0b1220', border: '1px solid #1f2937', borderRadius: 16, padding: 14 }}>
-      <div style={{ color: '#9ca3af', fontSize: 13 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{value}</div>
-      {hint ? <div style={{ color: '#9ca3af', marginTop: 6, fontSize: 12 }}>{hint}</div> : null}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+      {entries.map(([key, value]) => (
+        <div key={key} style={{ padding: 10, background: '#0b1220', borderRadius: 10, border: '1px solid #1f2937' }}>
+          <div style={{ color: '#9ca3af', fontSize: 12, textTransform: 'uppercase' }}>{key}</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{formatNumber(value, 4)}</div>
+        </div>
+      ))}
     </div>
   );
 }
 
-function SectionTitle({ children }) {
-  return <h3 style={{ margin: 0, fontSize: 16 }}>{children}</h3>;
-}
-
-function TrainingLogRow({ item }) {
+function PresetCard({ item, onApply, onActivateRuntime, applying, activating }) {
   return (
-    <div style={rowStyle}>
-      <div style={{ display: 'grid', gap: 4 }}>
-        <strong>{item.stepKey || 'etapa'}</strong>
-        <span style={{ color: '#e5e7eb' }}>{item.message || 'Sem mensagem'}</span>
+    <div style={{ background: '#0b1220', border: '1px solid #1f2937', borderRadius: 14, padding: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+        <strong style={{ textTransform: 'capitalize' }}>{String(item.title || item.regimeKey || '').replace(/_/g, ' ')}</strong>
+        <span style={{ fontSize: 12, color: item.isApplied ? '#34d399' : '#9ca3af' }}>
+          {item.isApplied ? 'Preset salvo' : 'Disponível'}
+        </span>
       </div>
-      <div style={{ textAlign: 'right', display: 'grid', gap: 4 }}>
-        <small style={mutedTextStyle}>{formatDateTime(item.createdAt)}</small>
-        <small style={mutedTextStyle}>nível: {translateStatus(item.level || item.status || 'info')}</small>
+      <p style={{ color: '#9ca3af' }}>{item.description}</p>
+      <WeightList weights={item.weights} />
+      <div style={{ marginTop: 10, color: '#9ca3af', fontSize: 13 }}>
+        qualidade: {formatNumber(item.qualityScore, 4)} • drift: {formatNumber(item.driftScore, 4)} • intensidade: {formatNumber(item.intensity, 4)}
       </div>
-    </div>
-  );
-}
-
-function PresetCard({ item, onApply, applying }) {
-  return (
-    <div style={{ ...rowStyle, alignItems: 'stretch', display: 'grid', gap: 12 }}>
-      <div style={{ display: 'grid', gap: 6 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-          <strong style={{ textTransform: 'capitalize' }}>{item.title}</strong>
-          <span
-            style={{
-              fontSize: 12,
-              color: item.isApplied ? '#86efac' : '#9ca3af',
-              border: `1px solid ${item.isApplied ? '#166534' : '#374151'}`,
-              background: item.isApplied ? '#052e16' : '#111827',
-              borderRadius: 999,
-              padding: '4px 8px',
-            }}
-          >
-            {item.isApplied ? 'Aplicado' : 'Disponível'}
-          </span>
-        </div>
-        <div style={mutedTextStyle}>{item.description}</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {Object.entries(item.weights || {}).map(([key, value]) => (
-            <span
-              key={key}
-              style={{
-                border: '1px solid #374151',
-                borderRadius: 999,
-                padding: '4px 8px',
-                fontSize: 12,
-                color: '#d1d5db',
-                background: '#0b1220',
-              }}
-            >
-              {key}: {formatNumber(value, 4)}
-            </span>
-          ))}
-        </div>
-        <small style={mutedTextStyle}>
-          qualidade: {formatNumber(item.qualityScore, 4)} • drift: {formatNumber(item.driftScore, 4)} • intensidade:{' '}
-          {formatNumber(item.intensity, 4)}
-        </small>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button
-          type="button"
-          onClick={() => onApply(item.regimeKey)}
-          disabled={applying}
-          style={item.isApplied ? secondaryButtonStyle : primaryButtonStyle}
-        >
-          {applying ? 'Aplicando...' : item.isApplied ? 'Reaplicar preset' : 'Aplicar preset'}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <button type="button" style={secondaryButtonStyle} disabled={applying} onClick={() => onApply(item.regimeKey)}>
+          {applying ? 'Aplicando...' : 'Salvar preset'}
+        </button>
+        <button type="button" style={primaryButtonStyle} disabled={activating} onClick={() => onActivateRuntime(item.regimeKey)}>
+          {activating ? 'Ativando...' : 'Ativar no runtime'}
         </button>
       </div>
     </div>
   );
 }
 
-const defaultRunForm = {
-  label: 'manual-training-assistance',
-  objective: 'quality_assistance',
-  windowDays: 14,
-  symbolScope: '',
-  applySuggestedWeights: false,
-};
-
-const defaultSettings = {
-  minQualityScoreForApply: 0.56,
-  autoApplyMode: 'guarded',
-  allowApplyWithWarning: false,
-  adaptiveExpertsEnabled: true,
-  adaptiveRegimePresetsEnabled: true,
-  maxWeightShiftPerRun: 0.15,
-};
+function TrainingLogRow({ item }) {
+  return (
+    <div style={{ padding: 12, borderBottom: '1px solid #1f2937' }}>
+      <div style={{ fontWeight: 600 }}>{item.stepKey || 'etapa'} • {item.message || 'Sem mensagem'}</div>
+      <div style={{ color: '#9ca3af', fontSize: 13, marginTop: 4 }}>
+        {formatDateTime(item.createdAt)} • nível: {translateStatus(item.level || item.status || 'info')}
+      </div>
+      {item.payload ? (
+        <pre style={{ whiteSpace: 'pre-wrap', marginTop: 8, fontSize: 12, color: '#cbd5e1' }}>
+          {typeof item.payload === 'string' ? item.payload : JSON.stringify(item.payload, null, 2)}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
 
 export default function TreinamentoPage() {
   const [loading, setLoading] = useState(true);
-  const [runLoading, setRunLoading] = useState(false);
-  const [settingsSaving, setSettingsSaving] = useState(false);
-  const [presetApplying, setPresetApplying] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [trainingLoading, setTrainingLoading] = useState(false);
+  const [presetAction, setPresetAction] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState(null);
+
   const [summary, setSummary] = useState(null);
-  const [settings, setSettings] = useState(defaultSettings);
+  const [settingsPayload, setSettingsPayload] = useState(null);
+  const [runtimePayload, setRuntimePayload] = useState(null);
+  const [presetsPayload, setPresetsPayload] = useState(null);
   const [runs, setRuns] = useState([]);
   const [logs, setLogs] = useState([]);
   const [qualityReports, setQualityReports] = useState([]);
   const [driftReports, setDriftReports] = useState([]);
   const [expertReports, setExpertReports] = useState([]);
-  const [regimePresets, setRegimePresets] = useState([]);
-  const [selectedRunId, setSelectedRunId] = useState('');
-  const [runForm, setRunForm] = useState(defaultRunForm);
 
-  async function loadData({ preserveRunSelection = true } = {}) {
+  const [form, setForm] = useState({
+    label: 'manual-training-assistance',
+    objective: 'quality_assistance',
+    windowDays: 14,
+    symbolScope: '',
+    applySuggestedWeights: false,
+  });
+
+  const [settingsForm, setSettingsForm] = useState({
+    minQualityScoreForApply: 0.56,
+    autoApplyMode: 'guarded',
+    allowApplyWithWarning: false,
+    adaptiveExpertsEnabled: true,
+    adaptiveRegimePresetsEnabled: true,
+    maxWeightShiftPerRun: 0.15,
+  });
+
+  const loadEverything = async () => {
     setLoading(true);
     setError('');
     try {
       const [
-        summaryResponse,
-        settingsResponse,
-        runsResponse,
-        qualityResponse,
-        driftResponse,
-        expertResponse,
-        presetResponse,
+        summaryData,
+        settingsData,
+        runtimeData,
+        presetsData,
+        runsData,
+        logsData,
+        qualityData,
+        driftData,
+        expertData,
       ] = await Promise.all([
         fetchTrainingSummary(),
         fetchTrainingSettings(),
-        fetchTrainingRuns(12),
-        fetchTrainingQualityReports(8),
-        fetchTrainingDriftReports(8),
-        fetchTrainingExpertReports(8),
+        fetchTrainingRuntime(),
         fetchTrainingRegimePresets(12),
+        fetchTrainingRuns(12),
+        fetchTrainingLogs(100),
+        fetchTrainingQualityReports(12),
+        fetchTrainingDriftReports(12),
+        fetchTrainingExpertReports(12),
       ]);
 
-      const fetchedRuns = runsResponse?.items || [];
-      const nextSelectedRunId = preserveRunSelection && selectedRunId
-        ? selectedRunId
-        : fetchedRuns[0]?.id
-          ? String(fetchedRuns[0].id)
-          : '';
+      setSummary(summaryData || null);
+      setSettingsPayload(settingsData || null);
+      setRuntimePayload(runtimeData || null);
+      setPresetsPayload(presetsData || null);
+      setRuns(runsData?.items || []);
+      setLogs(logsData?.items || []);
+      setQualityReports(qualityData?.items || []);
+      setDriftReports(driftData?.items || []);
+      setExpertReports(expertData?.items || []);
 
-      const logsResponse = await fetchTrainingLogs(120, nextSelectedRunId);
-
-      setSummary(summaryResponse || null);
-      setSettings({ ...defaultSettings, ...(settingsResponse?.settings || {}) });
-      setRuns(fetchedRuns);
-      setQualityReports(qualityResponse?.items || []);
-      setDriftReports(driftResponse?.items || []);
-      setExpertReports(expertResponse?.items || []);
-      setRegimePresets(presetResponse?.presets || []);
-      setSelectedRunId(nextSelectedRunId);
-      setLogs(logsResponse?.items || []);
+      const nextSettings = settingsData?.settings || {};
+      setSettingsForm((current) => ({
+        ...current,
+        ...nextSettings,
+      }));
+      setForm((current) => ({
+        ...current,
+        windowDays: nextSettings.evaluationWindowDays || current.windowDays || 14,
+      }));
     } catch (requestError) {
-      setError(requestError.message || 'Falha ao carregar dados de treinamento.');
+      setError(requestError.message || 'Falha ao carregar a governança do treinamento.');
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
-    loadData();
+    loadEverything();
   }, []);
-
-  useEffect(() => {
-    if (!selectedRunId) return;
-    fetchTrainingLogs(120, selectedRunId)
-      .then((response) => {
-        setLogs(response?.items || []);
-      })
-      .catch((requestError) => {
-        setError(requestError.message || 'Falha ao carregar logs do treinamento.');
-      });
-  }, [selectedRunId]);
 
   const latestQuality = qualityReports[0] || null;
   const latestDrift = driftReports[0] || null;
-  const topExperts = useMemo(() => expertReports.slice(0, 5), [expertReports]);
+  const currentRuntime = runtimePayload?.runtime || null;
 
-  async function handleRunTraining(event) {
-    event.preventDefault();
-    setRunLoading(true);
+  const runtimeDiff = useMemo(() => {
+    const runtimeWeights = currentRuntime?.effectiveExpertWeights || {};
+    const configWeights = runtimePayload?.training?.expertWeights || {};
+    const keys = Array.from(new Set([...Object.keys(runtimeWeights), ...Object.keys(configWeights)]));
+    return keys.map((key) => ({
+      key,
+      runtime: Number(runtimeWeights[key] || 0),
+      config: Number(configWeights[key] || 0),
+      delta: Number((Number(runtimeWeights[key] || 0) - Number(configWeights[key] || 0)).toFixed(4)),
+    }));
+  }, [currentRuntime, runtimePayload]);
+
+  const handleRunTraining = async () => {
+    setTrainingLoading(true);
     setError('');
     setNotice(null);
-
     try {
-      const payload = {
-        ...runForm,
-        symbolScope: runForm.symbolScope
-          .split(',')
-          .map((item) => item.trim().toUpperCase())
-          .filter(Boolean),
+      const result = await runTrainingAssistance({
+        label: form.label || 'manual-training-assistance',
+        objective: form.objective || 'quality_assistance',
+        windowDays: Number(form.windowDays || settingsForm.evaluationWindowDays || 14),
+        symbolScope: form.symbolScope || null,
+        applySuggestedWeights: Boolean(form.applySuggestedWeights),
         requestedBy: 'dashboard',
-      };
+      });
 
-      const result = await runTrainingAssistance(payload);
       if (result?.warning) {
         setNotice({
           type: 'warning',
           title: 'Treinamento concluído com alerta',
-          message:
-            result.message ||
-            'O treinamento foi executado, mas a aplicação automática dos pesos foi bloqueada.',
-          detail:
-            result.qualityScore !== undefined
-              ? `Score atual: ${formatNumber(result.qualityScore, 4)} • mínimo: ${formatNumber(result.minRequired, 4)}`
-              : '',
+          message: `${result.message} Score atual: ${formatNumber(result.qualityScore, 4)} • mínimo: ${formatNumber(result.minRequired, 2)}`,
         });
       } else {
         setNotice({
           type: 'success',
           title: 'Treinamento concluído',
-          message: 'A execução do treinamento assistido foi concluída com sucesso.',
-          detail: result?.message || '',
+          message: `Execução registrada${result?.id ? ` #${result.id}` : ''}.`,
         });
       }
 
-      await loadData({ preserveRunSelection: false });
+      await loadEverything();
     } catch (requestError) {
-      setError(requestError.message || 'Falha ao executar treinamento assistido.');
+      setError(requestError.message || 'Falha ao rodar treinamento assistido.');
     } finally {
-      setRunLoading(false);
+      setTrainingLoading(false);
     }
-  }
+  };
 
-  async function handleSaveSettings(event) {
-    event.preventDefault();
-    setSettingsSaving(true);
+  const handleSaveSettings = async () => {
+    setSavingSettings(true);
     setError('');
     setNotice(null);
-
     try {
-      const result = await updateTrainingSettings({
+      const payload = await updateTrainingSettings({
+        ...settingsForm,
         requestedBy: 'dashboard',
-        minQualityScoreForApply: Number(settings.minQualityScoreForApply || 0),
-        autoApplyMode: settings.autoApplyMode,
-        allowApplyWithWarning: Boolean(settings.allowApplyWithWarning),
-        adaptiveExpertsEnabled: Boolean(settings.adaptiveExpertsEnabled),
-        adaptiveRegimePresetsEnabled: Boolean(settings.adaptiveRegimePresetsEnabled),
-        maxWeightShiftPerRun: Number(settings.maxWeightShiftPerRun || 0.15),
       });
-
-      setSettings({ ...defaultSettings, ...(result?.settings || {}) });
+      setSettingsPayload((current) => ({
+        ...(current || {}),
+        ...payload,
+      }));
       setNotice({
         type: 'success',
-        title: 'Configurações atualizadas',
-        message: result?.message || 'As configurações de treinamento foram salvas.',
+        title: 'Configurações salvas',
+        message: payload.message || 'As configurações do treinamento foram atualizadas.',
       });
+      await loadEverything();
     } catch (requestError) {
-      setError(requestError.message || 'Falha ao salvar configurações de treinamento.');
+      setError(requestError.message || 'Falha ao salvar configurações do treinamento.');
     } finally {
-      setSettingsSaving(false);
+      setSavingSettings(false);
     }
-  }
+  };
 
-  async function handleApplyPreset(regimeKey) {
-    setPresetApplying(true);
+  const handleApplyPreset = async (regimeKey) => {
+    setPresetAction(`apply:${regimeKey}`);
     setError('');
     setNotice(null);
-
     try {
-      const result = await applyTrainingRegimePreset({ regimeKey, requestedBy: 'dashboard' });
+      const payload = await applyTrainingRegimePreset(regimeKey, 'dashboard');
       setNotice({
         type: 'success',
-        title: 'Preset aplicado',
-        message: result?.message || 'Preset aplicado com sucesso.',
-        detail: result?.preset?.regimeKey ? `Regime: ${result.preset.regimeKey}` : '',
+        title: 'Preset salvo na configuração',
+        message: payload.message || `Preset ${regimeKey} salvo com sucesso.`,
       });
-      await loadData();
+      await loadEverything();
     } catch (requestError) {
-      setError(requestError.message || 'Falha ao aplicar preset de regime.');
+      setError(requestError.message || 'Falha ao aplicar preset.');
     } finally {
-      setPresetApplying(false);
+      setPresetAction('');
     }
+  };
+
+  const handleActivateRuntime = async (regimeKey) => {
+    setPresetAction(`runtime:${regimeKey}`);
+    setError('');
+    setNotice(null);
+    try {
+      const payload = await activateTrainingRuntimeRegime(regimeKey, 'dashboard');
+      setNotice({
+        type: 'success',
+        title: 'Regime ativado em runtime',
+        message: payload.message || `Regime ${regimeKey} ativado com sucesso para a AI.`,
+      });
+      await loadEverything();
+    } catch (requestError) {
+      setError(requestError.message || 'Falha ao ativar regime em runtime.');
+    } finally {
+      setPresetAction('');
+    }
+  };
+
+  const handleSyncRuntime = async () => {
+    setPresetAction('runtime:sync');
+    setError('');
+    setNotice(null);
+    try {
+      const payload = await syncTrainingRuntime('dashboard');
+      setNotice({
+        type: 'success',
+        title: 'Runtime sincronizado',
+        message: payload.message || 'Runtime sincronizado com o preset ativo.',
+      });
+      await loadEverything();
+    } catch (requestError) {
+      setError(requestError.message || 'Falha ao sincronizar runtime.');
+    } finally {
+      setPresetAction('');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ display: 'grid', gap: 16 }}>
+        <Card title="Treinamento" subtitle="Carregando governança e runtime da AI..." />
+      </div>
+    );
   }
 
   return (
-    <div style={{ display: 'grid', gap: 20 }}>
-      {notice ? (
-        <Notice type={notice.type} title={notice.title} detail={notice.detail}>
-          {notice.message}
-        </Notice>
-      ) : null}
+    <div style={{ display: 'grid', gap: 16 }}>
+      {error ? <Notice type="error" title="Falha">{error}</Notice> : null}
+      {notice ? <Notice type={notice.type} title={notice.title}>{notice.message}</Notice> : null}
 
-      {error ? <Notice type="error">{error}</Notice> : null}
-
-      {loading ? <Notice>Carregando dados do treinamento...</Notice> : null}
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
-        <Metric label="Score de qualidade" value={formatNumber(latestQuality?.qualityScore, 4)} hint={translateStatus(latestQuality?.qualityStatus)} />
-        <Metric label="Drift atual" value={formatNumber(latestDrift?.driftScore, 4)} hint={translateStatus(latestDrift?.driftStatus)} />
-        <Metric label="Execuções recentes" value={formatNumber(runs.length, 0)} hint="Últimas execuções carregadas" />
-        <Metric label="Experts monitorados" value={formatNumber(topExperts.length, 0)} hint="Top 5 exibidos abaixo" />
-      </div>
-
-      <Card title="Executar treinamento assistido" subtitle="Rode uma nova avaliação sem sair do painel.">
-        <form onSubmit={handleRunTraining} style={{ display: 'grid', gap: 14 }}>
-          <div style={gridTwoColsStyle}>
-            <label style={fieldStyle}>
-              <span>Label</span>
-              <input
-                value={runForm.label}
-                onChange={(event) =>
-                  setRunForm((current) => ({ ...current, label: event.target.value }))
-                }
-                style={inputStyle}
-              />
-            </label>
-            <label style={fieldStyle}>
-              <span>Janela de avaliação (dias)</span>
-              <input
-                type="number"
-                min="1"
-                value={runForm.windowDays}
-                onChange={(event) =>
-                  setRunForm((current) => ({ ...current, windowDays: Number(event.target.value || 14) }))
-                }
-                style={inputStyle}
-              />
-            </label>
+      <Card
+        title="Treinamento assistido e runtime da AI"
+        subtitle="Nesta etapa, o painel passa a controlar explicitamente o regime ativo de runtime e os pesos efetivos usados pela AI."
+        extra={
+          <button type="button" style={secondaryButtonStyle} onClick={loadEverything}>
+            Atualizar
+          </button>
+        }
+      >
+        <div style={sectionGridStyle}>
+          <div style={{ ...shellCardStyle, padding: 14 }}>
+            <SectionTitle>Resumo rápido</SectionTitle>
+            <div>Qualidade atual: <strong>{formatNumber(latestQuality?.qualityScore, 4)}</strong></div>
+            <div>Status da qualidade: <strong>{translateStatus(latestQuality?.qualityStatus)}</strong></div>
+            <div>Drift atual: <strong>{formatNumber(latestDrift?.driftScore, 4)}</strong></div>
+            <div>Status do drift: <strong>{translateStatus(latestDrift?.driftStatus)}</strong></div>
+            <div>Regime ativo em runtime: <strong>{currentRuntime?.currentRegime || '—'}</strong></div>
+            <div>Status do runtime: <strong>{translateStatus(currentRuntime?.runtimeStatus)}</strong></div>
           </div>
 
-          <label style={fieldStyle}>
-            <span>Escopo de símbolos</span>
-            <input
-              value={runForm.symbolScope}
-              onChange={(event) =>
-                setRunForm((current) => ({ ...current, symbolScope: event.target.value }))
-              }
-              placeholder="BTCUSDT, ETHUSDT, SOLUSDT"
-              style={inputStyle}
-            />
-          </label>
-
-          <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <input
-              type="checkbox"
-              checked={runForm.applySuggestedWeights}
-              onChange={(event) =>
-                setRunForm((current) => ({ ...current, applySuggestedWeights: event.target.checked }))
-              }
-            />
-            <span>Aplicar pesos sugeridos automaticamente</span>
-          </label>
-
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button type="submit" disabled={runLoading} style={primaryButtonStyle}>
-              {runLoading ? 'Executando...' : 'Rodar treinamento assistido'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setRunForm(defaultRunForm);
-                setNotice(null);
-                setError('');
-              }}
-              style={secondaryButtonStyle}
-            >
-              Limpar formulário
-            </button>
-          </div>
-        </form>
-      </Card>
-
-      <Card title="Configurações do guardrail de treinamento" subtitle="Defina como o treinamento pode sugerir e aplicar pesos.">
-        <form onSubmit={handleSaveSettings} style={{ display: 'grid', gap: 14 }}>
-          <div style={gridTwoColsStyle}>
-            <label style={fieldStyle}>
-              <span>Limiar mínimo para aplicar pesos</span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-                value={settings.minQualityScoreForApply}
-                onChange={(event) =>
-                  setSettings((current) => ({ ...current, minQualityScoreForApply: event.target.value }))
-                }
-                style={inputStyle}
-              />
-            </label>
-            <label style={fieldStyle}>
-              <span>Modo de aplicação automática</span>
-              <select
-                value={settings.autoApplyMode}
-                onChange={(event) =>
-                  setSettings((current) => ({ ...current, autoApplyMode: event.target.value }))
-                }
-                style={inputStyle}
-              >
-                <option value="guarded">Guardado</option>
-                <option value="manual_first">Manual primeiro</option>
-                <option value="aggressive">Mais agressivo</option>
-              </select>
-            </label>
-          </div>
-
-          <div style={gridTwoColsStyle}>
-            <label style={fieldStyle}>
-              <span>Shift máximo de peso por run</span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-                value={settings.maxWeightShiftPerRun}
-                onChange={(event) =>
-                  setSettings((current) => ({ ...current, maxWeightShiftPerRun: event.target.value }))
-                }
-                style={inputStyle}
-              />
-            </label>
-            <div style={{ display: 'grid', gap: 10, alignContent: 'center' }}>
-              <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings.allowApplyWithWarning)}
-                  onChange={(event) =>
-                    setSettings((current) => ({ ...current, allowApplyWithWarning: event.target.checked }))
-                  }
-                />
-                <span>Permitir aplicação mesmo com alerta de qualidade baixa</span>
+          <div style={{ ...shellCardStyle, padding: 14 }}>
+            <SectionTitle>Rodar treinamento assistido</SectionTitle>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <label>
+                <div style={{ marginBottom: 6 }}>Label</div>
+                <input value={form.label} onChange={(e) => setForm((c) => ({ ...c, label: e.target.value }))} style={{ width: '100%' }} />
               </label>
-              <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings.adaptiveExpertsEnabled)}
-                  onChange={(event) =>
-                    setSettings((current) => ({ ...current, adaptiveExpertsEnabled: event.target.checked }))
-                  }
-                />
-                <span>Ativar aprendizado contínuo dos experts</span>
+              <label>
+                <div style={{ marginBottom: 6 }}>Objetivo</div>
+                <input value={form.objective} onChange={(e) => setForm((c) => ({ ...c, objective: e.target.value }))} style={{ width: '100%' }} />
               </label>
-              <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(settings.adaptiveRegimePresetsEnabled)}
-                  onChange={(event) =>
-                    setSettings((current) => ({ ...current, adaptiveRegimePresetsEnabled: event.target.checked }))
-                  }
-                />
-                <span>Ativar presets adaptativos por regime</span>
+              <label>
+                <div style={{ marginBottom: 6 }}>Janela de avaliação (dias)</div>
+                <input type="number" value={form.windowDays} onChange={(e) => setForm((c) => ({ ...c, windowDays: e.target.value }))} style={{ width: '100%' }} />
               </label>
+              <label>
+                <div style={{ marginBottom: 6 }}>Escopo de símbolos (opcional)</div>
+                <input value={form.symbolScope} onChange={(e) => setForm((c) => ({ ...c, symbolScope: e.target.value }))} placeholder="BTCUSDT,ETHUSDT" style={{ width: '100%' }} />
+              </label>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input type="checkbox" checked={form.applySuggestedWeights} onChange={(e) => setForm((c) => ({ ...c, applySuggestedWeights: e.target.checked }))} />
+                Aplicar pesos sugeridos automaticamente
+              </label>
+              <button type="button" style={primaryButtonStyle} disabled={trainingLoading} onClick={handleRunTraining}>
+                {trainingLoading ? 'Executando...' : 'Rodar treinamento assistido'}
+              </button>
             </div>
           </div>
 
-          <div style={{ color: '#9ca3af', fontSize: 13 }}>
-            Recomendo manter a aplicação automática em modo guardado até você ganhar confiança com os relatórios de qualidade, drift e os presets abaixo.
+          <div style={{ ...shellCardStyle, padding: 14 }}>
+            <SectionTitle>Guardrails do treinamento</SectionTitle>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <label>
+                <div style={{ marginBottom: 6 }}>Limiar mínimo para aplicar pesos</div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={settingsForm.minQualityScoreForApply}
+                  onChange={(e) => setSettingsForm((c) => ({ ...c, minQualityScoreForApply: Number(e.target.value || 0) }))}
+                  style={{ width: '100%' }}
+                />
+              </label>
+              <label>
+                <div style={{ marginBottom: 6 }}>Modo de aplicação automática</div>
+                <select
+                  value={settingsForm.autoApplyMode}
+                  onChange={(e) => setSettingsForm((c) => ({ ...c, autoApplyMode: e.target.value }))}
+                  style={{ width: '100%' }}
+                >
+                  <option value="guarded">guarded</option>
+                  <option value="manual_only">manual_only</option>
+                  <option value="aggressive">aggressive</option>
+                </select>
+              </label>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(settingsForm.allowApplyWithWarning)}
+                  onChange={(e) => setSettingsForm((c) => ({ ...c, allowApplyWithWarning: e.target.checked }))}
+                />
+                Permitir aplicação com alerta
+              </label>
+              <button type="button" style={secondaryButtonStyle} disabled={savingSettings} onClick={handleSaveSettings}>
+                {savingSettings ? 'Salvando...' : 'Salvar guardrails'}
+              </button>
+            </div>
           </div>
-
-          <div>
-            <button type="submit" disabled={settingsSaving} style={primaryButtonStyle}>
-              {settingsSaving ? 'Salvando...' : 'Salvar configuração do treinamento'}
-            </button>
-          </div>
-        </form>
-      </Card>
-
-      <Card title="Presets adaptativos por regime" subtitle="Recomendações automáticas de pesos por comportamento de mercado.">
-        <div style={{ display: 'grid', gap: 12 }}>
-          {regimePresets.length ? (
-            regimePresets.map((item) => (
-              <PresetCard key={item.regimeKey} item={item} onApply={handleApplyPreset} applying={presetApplying} />
-            ))
-          ) : (
-            <div style={mutedTextStyle}>Nenhum preset adaptativo encontrado.</div>
-          )}
         </div>
       </Card>
 
-      <Card title="Logs do treinamento" subtitle="Acompanhe a execução selecionada e as últimas etapas registradas.">
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <label style={fieldStyle}>
-              <span>Execução selecionada</span>
-              <select
-                value={selectedRunId}
-                onChange={(event) => setSelectedRunId(event.target.value)}
-                style={{ ...inputStyle, minWidth: 260 }}
-              >
-                <option value="">Selecione uma execução</option>
-                {runs.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    #{item.id} • {item.label || 'sem label'} • {formatDateTime(item.createdAt)}
-                  </option>
-                ))}
-              </select>
-            </label>
+      <Card
+        title="Runtime da AI"
+        subtitle="Estado explícito que a AI deve consumir: regime atual, pesos efetivos e última sincronização."
+        extra={
+          <button type="button" style={secondaryButtonStyle} disabled={presetAction === 'runtime:sync'} onClick={handleSyncRuntime}>
+            {presetAction === 'runtime:sync' ? 'Sincronizando...' : 'Sincronizar runtime'}
+          </button>
+        }
+      >
+        <div style={sectionGridStyle}>
+          <div style={{ ...shellCardStyle, padding: 14 }}>
+            <SectionTitle>Estado atual</SectionTitle>
+            <div>Regime atual: <strong>{currentRuntime?.currentRegime || '—'}</strong></div>
+            <div>Fonte: <strong>{currentRuntime?.source || '—'}</strong></div>
+            <div>Status: <strong>{translateStatus(currentRuntime?.runtimeStatus)}</strong></div>
+            <div>Última sincronização: <strong>{formatDateTime(currentRuntime?.lastRuntimeSyncAt)}</strong></div>
+            <div>Último reporte do worker: <strong>{formatDateTime(currentRuntime?.workerReportedAt)}</strong></div>
+            <div>Worker: <strong>{currentRuntime?.workerName || '—'}</strong></div>
+            <div>Config usada no sync: <strong>{runtimePayload?.configVersion || currentRuntime?.configVersionAtSync || '—'}</strong></div>
+            <div style={{ marginTop: 10, color: '#9ca3af' }}>{currentRuntime?.notes || 'Sem observações recentes.'}</div>
           </div>
-          {logs.length ? logs.map((item) => <TrainingLogRow key={item.id || `${item.createdAt}-${item.stepKey}`} item={item} />) : (
-            <div style={mutedTextStyle}>Nenhum log encontrado para a execução selecionada.</div>
-          )}
+
+          <div style={{ ...shellCardStyle, padding: 14 }}>
+            <SectionTitle>Pesos efetivos em runtime</SectionTitle>
+            <WeightList weights={currentRuntime?.effectiveExpertWeights || {}} />
+          </div>
+
+          <div style={{ ...shellCardStyle, padding: 14 }}>
+            <SectionTitle>Diferença vs. configuração</SectionTitle>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {runtimeDiff.length ? runtimeDiff.map((item) => (
+                <div key={item.key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, fontSize: 14 }}>
+                  <div style={{ textTransform: 'uppercase', color: '#9ca3af' }}>{item.key}</div>
+                  <div>runtime: {formatNumber(item.runtime, 4)}</div>
+                  <div>config: {formatNumber(item.config, 4)}</div>
+                  <div style={{ color: item.delta === 0 ? '#9ca3af' : item.delta > 0 ? '#34d399' : '#f59e0b' }}>
+                    Δ {formatNumber(item.delta, 4)}
+                  </div>
+                </div>
+              )) : <div style={{ color: '#9ca3af' }}>Sem dados de comparação.</div>}
+            </div>
+          </div>
         </div>
       </Card>
 
-      <div style={gridTwoColsStyle}>
-        <Card title="Relatórios recentes de qualidade">
-          <div style={{ display: 'grid', gap: 10 }}>
-            {qualityReports.length ? (
-              qualityReports.map((item) => (
-                <div key={item.id || item.createdAt} style={rowStyle}>
-                  <div>
-                    <strong>{formatDateTime(item.createdAt)}</strong>
-                    <div style={mutedTextStyle}>score: {formatNumber(item.qualityScore, 4)}</div>
-                  </div>
-                  <span style={mutedTextStyle}>{translateStatus(item.qualityStatus)}</span>
-                </div>
-              ))
-            ) : (
-              <div style={mutedTextStyle}>Nenhum relatório de qualidade encontrado.</div>
-            )}
-          </div>
-        </Card>
+      <Card title="Presets adaptativos por regime" subtitle="Salvar preset atualiza a configuração. Ativar no runtime muda o regime efetivo consumido pela AI.">
+        <div style={{ ...sectionGridStyle, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+          {(presetsPayload?.presets || []).map((item) => (
+            <PresetCard
+              key={item.regimeKey}
+              item={item}
+              onApply={handleApplyPreset}
+              onActivateRuntime={handleActivateRuntime}
+              applying={presetAction === `apply:${item.regimeKey}`}
+              activating={presetAction === `runtime:${item.regimeKey}`}
+            />
+          ))}
+        </div>
+      </Card>
 
-        <Card title="Relatórios recentes de drift">
-          <div style={{ display: 'grid', gap: 10 }}>
-            {driftReports.length ? (
-              driftReports.map((item) => (
-                <div key={item.id || item.createdAt} style={rowStyle}>
-                  <div>
-                    <strong>{formatDateTime(item.createdAt)}</strong>
-                    <div style={mutedTextStyle}>drift: {formatNumber(item.driftScore, 4)}</div>
-                  </div>
-                  <span style={mutedTextStyle}>{translateStatus(item.driftStatus)}</span>
+      <Card title="Qualidade, drift e experts" subtitle="Governança contínua para validar se o runtime está coerente com o mercado atual.">
+        <div style={sectionGridStyle}>
+          <div style={{ ...shellCardStyle, padding: 14 }}>
+            <SectionTitle>Últimos relatórios de qualidade</SectionTitle>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {qualityReports.slice(0, 5).map((item, index) => (
+                <div key={index} style={{ borderBottom: '1px solid #1f2937', paddingBottom: 8 }}>
+                  <div><strong>{formatNumber(item.qualityScore, 4)}</strong> • {translateStatus(item.qualityStatus)}</div>
+                  <div style={{ color: '#9ca3af', fontSize: 13 }}>{formatDateTime(item.createdAt)}</div>
                 </div>
-              ))
-            ) : (
-              <div style={mutedTextStyle}>Nenhum relatório de drift encontrado.</div>
-            )}
+              ))}
+            </div>
           </div>
-        </Card>
-      </div>
 
-      <div style={gridTwoColsStyle}>
-        <Card title="Experts mais fortes">
-          <div style={{ display: 'grid', gap: 10 }}>
-            {topExperts.length ? (
-              topExperts.map((item) => (
-                <div key={item.id || item.expertKey} style={rowStyle}>
-                  <div>
-                    <strong>{item.expertKey}</strong>
-                    <div style={mutedTextStyle}>
-                      contribuição: {formatNumber(item.contributionScore, 4)} • peso sugerido: {formatNumber(item.suggestedWeight, 4)}
-                    </div>
-                  </div>
+          <div style={{ ...shellCardStyle, padding: 14 }}>
+            <SectionTitle>Últimos relatórios de drift</SectionTitle>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {driftReports.slice(0, 5).map((item, index) => (
+                <div key={index} style={{ borderBottom: '1px solid #1f2937', paddingBottom: 8 }}>
+                  <div><strong>{formatNumber(item.driftScore, 4)}</strong> • {translateStatus(item.driftStatus)}</div>
+                  <div style={{ color: '#9ca3af', fontSize: 13 }}>{formatDateTime(item.createdAt)}</div>
                 </div>
-              ))
-            ) : (
-              <div style={mutedTextStyle}>Nenhum relatório de expert encontrado.</div>
-            )}
+              ))}
+            </div>
           </div>
-        </Card>
 
-        <Card title="Execuções recentes">
-          <div style={{ display: 'grid', gap: 10 }}>
-            {runs.length ? (
-              runs.map((item) => (
-                <div key={item.id} style={rowStyle}>
-                  <div>
-                    <strong>Execução #{item.id} • {item.label || 'sem label'}</strong>
-                    <div style={mutedTextStyle}>
-                      {formatDateTime(item.createdAt)} • objetivo: {item.objective || '—'}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={mutedTextStyle}>{translateStatus(item.status)}</div>
-                    <div style={mutedTextStyle}>score: {formatNumber(item.qualityScore, 4)}</div>
+          <div style={{ ...shellCardStyle, padding: 14 }}>
+            <SectionTitle>Experts mais fortes</SectionTitle>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {expertReports.slice(0, 7).map((item, index) => (
+                <div key={index} style={{ borderBottom: '1px solid #1f2937', paddingBottom: 8 }}>
+                  <div><strong>{item.expertKey || item.name || 'expert'}</strong></div>
+                  <div style={{ color: '#9ca3af', fontSize: 13 }}>
+                    hit rate: {formatNumber(item.hitRate, 4)} • contribuição: {formatNumber(item.contributionScore, 4)} • peso sugerido: {formatNumber(item.suggestedWeight, 4)}
                   </div>
                 </div>
-              ))
-            ) : (
-              <div style={mutedTextStyle}>Ainda não há execuções registradas.</div>
-            )}
+              ))}
+            </div>
           </div>
-        </Card>
-      </div>
+        </div>
+      </Card>
 
-      <Card title="Resumo bruto da governança" subtitle="Saída detalhada do summary para inspeção rápida.">
-        {summary ? (
-          <pre
-            style={{
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              fontSize: 12,
-              color: '#d1d5db',
-              background: '#0b1220',
-              border: '1px solid #1f2937',
-              borderRadius: 16,
-              padding: 16,
-            }}
-          >
-            {JSON.stringify(summary, null, 2)}
-          </pre>
-        ) : (
-          <div style={mutedTextStyle}>Resumo indisponível no momento.</div>
-        )}
+      <Card title="Execuções e logs do treinamento" subtitle="Histórico operacional do treinamento assistido.">
+        <div style={sectionGridStyle}>
+          <div style={{ ...shellCardStyle, padding: 14 }}>
+            <SectionTitle>Execuções recentes</SectionTitle>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {runs.slice(0, 8).map((item) => (
+                <div key={item.id || `${item.label}-${item.createdAt}`} style={{ borderBottom: '1px solid #1f2937', paddingBottom: 8 }}>
+                  <div><strong>{item.label || `Execução #${item.id}`}</strong></div>
+                  <div style={{ color: '#9ca3af', fontSize: 13 }}>
+                    {formatDateTime(item.createdAt)} • status: {translateStatus(item.status)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ ...shellCardStyle, padding: 14 }}>
+            <SectionTitle>Logs do treinamento</SectionTitle>
+            <div style={{ maxHeight: 420, overflow: 'auto' }}>
+              {logs.slice(0, 40).map((item, index) => (
+                <TrainingLogRow key={`${item.createdAt}-${index}`} item={item} />
+              ))}
+            </div>
+          </div>
+        </div>
       </Card>
     </div>
   );
 }
-
-const inputStyle = {
-  background: '#0b1220',
-  color: '#f9fafb',
-  border: '1px solid #374151',
-  borderRadius: 12,
-  padding: '10px 12px',
-  outline: 'none',
-};
-
-const primaryButtonStyle = {
-  background: '#2563eb',
-  color: 'white',
-  border: 'none',
-  borderRadius: 12,
-  padding: '10px 14px',
-  cursor: 'pointer',
-  fontWeight: 600,
-};
-
-const secondaryButtonStyle = {
-  background: '#111827',
-  color: '#e5e7eb',
-  border: '1px solid #374151',
-  borderRadius: 12,
-  padding: '10px 14px',
-  cursor: 'pointer',
-  fontWeight: 600,
-};
-
-const rowStyle = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: 12,
-  padding: '12px 14px',
-  borderRadius: 12,
-  border: '1px solid #1f2937',
-  background: '#0b1220',
-  color: '#e5e7eb',
-};
-
-const mutedTextStyle = {
-  color: '#9ca3af',
-  fontSize: 13,
-};
-
-const fieldStyle = {
-  display: 'grid',
-  gap: 8,
-  color: '#e5e7eb',
-};
-
-const gridTwoColsStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-  gap: 14,
-};

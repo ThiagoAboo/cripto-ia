@@ -317,7 +317,11 @@ export function runObservabilitySnapshot(payload = {}) {
 }
 
 export function buildObservabilityExportUrl(kind, format = 'json', limit = 500) {
-  const params = new URLSearchParams({ kind, format, limit: String(limit) });
+  const params = new URLSearchParams({
+    kind,
+    format,
+    limit: String(limit),
+  });
   return `${API_BASE_URL}/api/observability/export?${params.toString()}`;
 }
 
@@ -370,8 +374,33 @@ export function fetchTrainingRegimePresets(limit = 20) {
   return request(`/api/training/regime-presets?limit=${limit}`);
 }
 
-export function applyTrainingRegimePreset(payload = {}) {
+export function applyTrainingRegimePreset(regimeKey, requestedBy = 'dashboard') {
   return request('/api/training/regime-presets/apply', {
+    method: 'POST',
+    body: JSON.stringify({ regimeKey, requestedBy }),
+  });
+}
+
+export function fetchTrainingRuntime() {
+  return request('/api/training/runtime');
+}
+
+export function activateTrainingRuntimeRegime(regimeKey, requestedBy = 'dashboard') {
+  return request('/api/training/runtime/activate-regime', {
+    method: 'POST',
+    body: JSON.stringify({ regimeKey, requestedBy }),
+  });
+}
+
+export function syncTrainingRuntime(requestedBy = 'dashboard') {
+  return request('/api/training/runtime/sync', {
+    method: 'POST',
+    body: JSON.stringify({ requestedBy }),
+  });
+}
+
+export function reportTrainingWorkerRuntime(payload = {}) {
+  return request('/api/training/runtime/worker-sync', {
     method: 'POST',
     body: JSON.stringify(payload),
   });

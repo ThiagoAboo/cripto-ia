@@ -14,6 +14,12 @@ const {
   listRegimePresets,
   applyRegimePreset,
 } = require('../services/trainingAdaptation.service');
+const {
+  getTrainingRuntimeState,
+  activateRuntimeRegime,
+  syncRuntimeWithActivePreset,
+  reportWorkerRuntime,
+} = require('../services/trainingRuntime.service');
 
 const router = express.Router();
 
@@ -69,6 +75,44 @@ router.post('/regime-presets/apply', async (request, response, next) => {
   try {
     const { regimeKey, requestedBy = 'dashboard' } = request.body || {};
     const payload = await applyRegimePreset({ regimeKey, requestedBy });
+    response.status(201).json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/runtime', async (_request, response, next) => {
+  try {
+    const payload = await getTrainingRuntimeState();
+    response.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/runtime/activate-regime', async (request, response, next) => {
+  try {
+    const { regimeKey, requestedBy = 'dashboard' } = request.body || {};
+    const payload = await activateRuntimeRegime({ regimeKey, requestedBy });
+    response.status(201).json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/runtime/sync', async (request, response, next) => {
+  try {
+    const { requestedBy = 'dashboard' } = request.body || {};
+    const payload = await syncRuntimeWithActivePreset({ requestedBy });
+    response.status(201).json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/runtime/worker-sync', async (request, response, next) => {
+  try {
+    const payload = await reportWorkerRuntime(request.body || {});
     response.status(201).json(payload);
   } catch (error) {
     next(error);
