@@ -110,3 +110,25 @@ export function clearCooldown(symbol) {
     method: 'DELETE',
   });
 }
+
+export function fetchBacktests(limit = 12) {
+  return request(`/api/backtests?limit=${limit}`);
+}
+
+export function fetchBacktestById(id) {
+  return request(`/api/backtests/${id}`);
+}
+
+export function runBacktest(payload) {
+  return request('/api/backtests/run', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function compareBacktests(payload) {
+  return request('/api/backtests/compare', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

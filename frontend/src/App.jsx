@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   clearCooldown,
+  compareBacktests,
+  fetchBacktests,
   fetchConfig,
   fetchConfigHistory,
   fetchControl,
@@ -13,6 +15,7 @@ import {
   fetchSocialSummary,
   fetchStatus,
   getApiBaseUrl,
+  runBacktest,
   pauseControl,
   resumeControl,
   triggerEmergencyStop,
@@ -33,6 +36,7 @@ const DEFAULT_STATUS = {
   social: { topScores: [], recentAlerts: [], providers: [], attribution: {} },
   control: { isPaused: false, emergencyStop: false, activeCooldowns: [], guardrails: {} },
   configHistory: [],
+  recentBacktests: [],
   timestamp: null,
 };
 
@@ -84,6 +88,7 @@ export default function App() {
     socialSummary: null,
     control: null,
     configHistory: [],
+    backtests: [],
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -91,6 +96,9 @@ export default function App() {
   const [error, setError] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
   const [sseConnected, setSseConnected] = useState(false);
+  const [backtestForm, setBacktestForm] = useState({ symbol: 'BTCUSDT', interval: '5m', confirmationInterval: '15m', limit: 400 });
+  const [backtestLoading, setBacktestLoading] = useState('');
+  const [comparisonResult, setComparisonResult] = useState(null);
 
   const loadEverything = async () => {
     setError('');
@@ -107,6 +115,7 @@ export default function App() {
         socialAlertsData,
         socialSummaryData,
         controlData,
+        backtestsData,
       ] = await Promise.all([
         fetchHealth(),
         fetchConfig(),
@@ -119,6 +128,7 @@ export default function App() {
         fetchSocialAlerts(12),
         fetchSocialSummary(),
         fetchControl(),
+        fetchBacktests(10),
       ]);
 
       setHealth(healthData);
@@ -134,6 +144,7 @@ export default function App() {
         socialSummary: socialSummaryData,
         control: controlData,
         configHistory: configHistoryData.items || [],
+        backtests: backtestsData.items || [],
       });
     } catch (requestError) {
       setError(requestError.message || 'Falha ao carregar dados do painel.');
@@ -145,6 +156,17 @@ export default function App() {
   useEffect(() => {
     loadEverything();
   }, []);
+
+  useEffect(() => {
+    if (!draftConfig) return;
+    setBacktestForm((current) => ({
+      ...current,
+      symbol: current.symbol || draftConfig?.trading?.symbols?.[0] || 'BTCUSDT',
+      interval: current.interval || draftConfig?.backtest?.defaultInterval || draftConfig?.trading?.primaryTimeframe || '5m',
+      confirmationInterval: current.confirmationInterval || draftConfig?.backtest?.defaultConfirmationInterval || draftConfig?.trading?.confirmationTimeframes?.[0] || '15m',
+      limit: current.limit || draftConfig?.backtest?.defaultLimit || draftConfig?.trading?.lookbackCandles || 400,
+    }));
+  }, [draftConfig]);
 
   useEffect(() => {
     const source = new EventSource(`${getApiBaseUrl()}/api/status/stream`);
@@ -179,6 +201,7 @@ export default function App() {
   const socialSummary = status.social?.assetsCount !== undefined ? status.social : auxData.socialSummary;
   const controlState = status.control?.updatedAt ? status.control : auxData.control;
   const configHistory = status.configHistory?.length ? status.configHistory : auxData.configHistory;
+  const recentBacktests = status.recentBacktests?.length ? status.recentBacktests : auxData.backtests;
   const execution = status.execution || DEFAULT_STATUS.execution;
 
   const summaryCards = useMemo(() => {
@@ -267,6 +290,58 @@ export default function App() {
       setError(requestError.message || 'Falha ao atualizar o controle operacional.');
     } finally {
       setActionLoading('');
+    }
+  };
+
+  const handleRunBacktest = async () => {
+    setBacktestLoading('run');
+    setError('');
+    setComparisonResult(null);
+    try {
+      const result = await runBacktest({
+        label: `manual:${backtestForm.symbol}:${backtestForm.interval}`,
+        symbol: backtestForm.symbol,
+        interval: backtestForm.interval,
+        confirmationInterval: backtestForm.confirmationInterval,
+        limit: Number(backtestForm.limit || 400),
+      });
+      setSaveMessage(`Backtest concluído para ${result.symbol}. Run #${result.id}.`);
+      await loadEverything();
+    } catch (requestError) {
+      setError(requestError.message || 'Falha ao executar backtest.');
+    } finally {
+      setBacktestLoading('');
+    }
+  };
+
+  const handleCompareBacktest = async () => {
+    setBacktestLoading('compare');
+    setError('');
+    try {
+      const result = await compareBacktests({
+        symbol: backtestForm.symbol,
+        interval: backtestForm.interval,
+        confirmationInterval: backtestForm.confirmationInterval,
+        limit: Number(backtestForm.limit || 400),
+        challengerConfig: {
+          ai: {
+            minConfidenceToBuy: Number((draftConfig?.ai?.minConfidenceToBuy || 0.64)) + 0.03,
+            minConfidenceToSell: Number((draftConfig?.ai?.minConfidenceToSell || 0.60)) + 0.02,
+            decisionMargin: Number((draftConfig?.ai?.decisionMargin || 0.05)) + 0.01,
+          },
+          risk: {
+            stopLossAtr: Number(draftConfig?.risk?.stopLossAtr || 1.8) + 0.2,
+            takeProfitAtr: Number(draftConfig?.risk?.takeProfitAtr || 2.6) + 0.2,
+          },
+        },
+      });
+      setComparisonResult(result);
+      setSaveMessage('Comparação de configuração concluída.');
+      await loadEverything();
+    } catch (requestError) {
+      setError(requestError.message || 'Falha ao comparar backtests.');
+    } finally {
+      setBacktestLoading('');
     }
   };
 
@@ -451,6 +526,83 @@ export default function App() {
                 </ConfigField>
               </div>
             ) : null}
+          </Section>
+
+          <Section
+            title="Backtest e replay"
+            subtitle="Executa replay com os mesmos experts da estratégia e compara uma configuração challenger contra a ativa."
+            actions={(
+              <div className="button-row">
+                <button className="button" onClick={handleRunBacktest} disabled={backtestLoading === 'run'}>{backtestLoading === 'run' ? 'Executando...' : 'Rodar backtest'}</button>
+                <button className="button button--ghost" onClick={handleCompareBacktest} disabled={backtestLoading === 'compare'}>{backtestLoading === 'compare' ? 'Comparando...' : 'Comparar config'}</button>
+              </div>
+            )}
+          >
+            <div className="form-grid">
+              <ConfigField label="Símbolo">
+                <input value={backtestForm.symbol} onChange={(event) => setBacktestForm((current) => ({ ...current, symbol: event.target.value.toUpperCase() }))} />
+              </ConfigField>
+              <ConfigField label="Intervalo principal">
+                <input value={backtestForm.interval} onChange={(event) => setBacktestForm((current) => ({ ...current, interval: event.target.value }))} />
+              </ConfigField>
+              <ConfigField label="Intervalo de confirmação">
+                <input value={backtestForm.confirmationInterval} onChange={(event) => setBacktestForm((current) => ({ ...current, confirmationInterval: event.target.value }))} />
+              </ConfigField>
+              <ConfigField label="Quantidade de candles">
+                <input type="number" min="150" max="1000" value={backtestForm.limit} onChange={(event) => setBacktestForm((current) => ({ ...current, limit: parseNumberInput(event.target.value, 400) }))} />
+              </ConfigField>
+            </div>
+
+            {comparisonResult ? (
+              <div className="metric-grid">
+                <div className="list-item list-item--column">
+                  <strong>Baseline #{comparisonResult.baseline.id}</strong>
+                  <div className="muted">Retorno {formatPercent(comparisonResult.baseline.metrics.totalReturnPct || 0)}</div>
+                  <div className="muted">Drawdown {formatPercent(comparisonResult.baseline.metrics.maxDrawdownPct || 0)}</div>
+                </div>
+                <div className="list-item list-item--column">
+                  <strong>Challenger #{comparisonResult.challenger.id}</strong>
+                  <div className="muted">Retorno {formatPercent(comparisonResult.challenger.metrics.totalReturnPct || 0)}</div>
+                  <div className="muted">Drawdown {formatPercent(comparisonResult.challenger.metrics.maxDrawdownPct || 0)}</div>
+                </div>
+                <div className="list-item list-item--column">
+                  <strong>Delta</strong>
+                  <div className={Number(comparisonResult.delta.totalReturnPct || 0) >= 0 ? 'text-positive' : 'text-danger'}>Retorno {formatPercent(comparisonResult.delta.totalReturnPct || 0)}</div>
+                  <div className={Number(comparisonResult.delta.outperformancePct || 0) >= 0 ? 'text-positive' : 'text-danger'}>Outperformance {formatPercent(comparisonResult.delta.outperformancePct || 0)}</div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="table-wrap compact-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Run</th>
+                    <th>Symbol</th>
+                    <th>Intervalo</th>
+                    <th>Retorno</th>
+                    <th>Drawdown</th>
+                    <th>Win rate</th>
+                    <th>Trades</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentBacktests?.length ? recentBacktests.map((run) => (
+                    <tr key={run.id}>
+                      <td>#{run.id}<br /><span className="muted">{run.label}</span></td>
+                      <td>{run.symbol}</td>
+                      <td>{run.interval} / {run.confirmationInterval}</td>
+                      <td className={Number(run.metrics?.totalReturnPct || 0) >= 0 ? 'text-positive' : 'text-danger'}>{formatPercent(run.metrics?.totalReturnPct || 0)}</td>
+                      <td className={Number(run.metrics?.maxDrawdownPct || 0) >= 0 ? 'text-positive' : 'text-danger'}>{formatPercent(run.metrics?.maxDrawdownPct || 0)}</td>
+                      <td>{formatPercent(run.metrics?.winRatePct || 0)}</td>
+                      <td>{formatNumber(run.metrics?.tradesCount || 0, 0)}</td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan="7" className="muted">Nenhum backtest executado ainda.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </Section>
 
           <Section title="Portfólio paper" subtitle={`Base ${baseCurrency} • ${portfolio.openPositionsCount || 0} posições abertas`}>

@@ -95,6 +95,12 @@ const DEFAULT_BOT_CONFIG = {
   frontend: {
     refreshIntervalSec: 5,
   },
+  backtest: {
+    defaultLimit: 400,
+    defaultInterval: '5m',
+    defaultConfirmationInterval: '15m',
+    persistEquityCurve: true,
+  },
 };
 
 async function initializeDatabase() {
@@ -415,6 +421,75 @@ async function initializeDatabase() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_live_order_attempts_created_at
     ON live_order_attempts (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS backtest_runs (
+      id BIGSERIAL PRIMARY KEY,
+      label TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      interval TEXT NOT NULL,
+      confirmation_interval TEXT NOT NULL,
+      candle_limit INTEGER NOT NULL DEFAULT 0,
+      config_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'completed',
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ,
+      metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_backtest_runs_created_at
+    ON backtest_runs (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS backtest_trades (
+      id BIGSERIAL PRIMARY KEY,
+      run_id BIGINT NOT NULL REFERENCES backtest_runs(id) ON DELETE CASCADE,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      reason TEXT,
+      decision_action TEXT,
+      confidence NUMERIC(10, 6) NOT NULL DEFAULT 0,
+      price NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      quantity NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      notional NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      fee_amount NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      realized_pnl NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      pnl_pct NUMERIC(18, 8) NOT NULL DEFAULT 0,
+      candle_time TIMESTAMPTZ NOT NULL,
+      execution_time TIMESTAMPTZ NOT NULL,
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_backtest_trades_run_id
+    ON backtest_trades (run_id, execution_time ASC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS backtest_equity_points (
+      id BIGSERIAL PRIMARY KEY,
+      run_id BIGINT NOT NULL REFERENCES backtest_runs(id) ON DELETE CASCADE,
+      point_time TIMESTAMPTZ NOT NULL,
+      equity NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      cash_balance NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      positions_value NUMERIC(28, 12) NOT NULL DEFAULT 0,
+      drawdown_pct NUMERIC(18, 8) NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_backtest_equity_points_run_id
+    ON backtest_equity_points (run_id, point_time ASC);
   `);
 
   await pool.query(

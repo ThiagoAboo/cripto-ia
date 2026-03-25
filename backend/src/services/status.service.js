@@ -4,6 +4,7 @@ const { getPaperSummary, listPaperOrders } = require('./portfolio.service');
 const { getSocialSummary, getSocialScores, listSocialAlerts } = require('./social.service');
 const { getExecutionStatus } = require('./executionAdapter.service');
 const { getRuntimeControl, listCooldowns, getRiskGuardrailSummary } = require('./control.service');
+const { listBacktestRuns } = require('./backtest.service');
 
 async function getSystemStatus() {
   const [
@@ -22,6 +23,7 @@ async function getSystemStatus() {
     control,
     cooldowns,
     guardrails,
+    recentBacktests,
   ] = await Promise.all([
     getActiveConfig(),
     getConfigHistory({ limit: 5 }),
@@ -67,6 +69,7 @@ async function getSystemStatus() {
     getRuntimeControl(),
     listCooldowns({ activeOnly: true, limit: 20 }),
     getRiskGuardrailSummary(),
+    listBacktestRuns({ limit: 5 }),
   ]);
 
   return {
@@ -98,6 +101,7 @@ async function getSystemStatus() {
       topScores: topSocialScores,
       recentAlerts: recentSocialAlerts,
     },
+    recentBacktests,
     timestamp: new Date().toISOString(),
   };
 }
