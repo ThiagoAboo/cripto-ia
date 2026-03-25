@@ -106,7 +106,9 @@ export function triggerEmergencyStop(reason = 'manual_emergency_stop') {
 }
 
 export function fetchCooldowns(activeOnly = true, limit = 100) {
-  return request(`/api/control/cooldowns?activeOnly=${activeOnly ? 'true' : 'false'}&limit=${limit}`);
+  return request(
+    `/api/control/cooldowns?activeOnly=${activeOnly ? 'true' : 'false'}&limit=${limit}`,
+  );
 }
 
 export function clearCooldown(symbol) {
@@ -225,7 +227,6 @@ export function runExecutionReconciliation(payload = {}) {
   });
 }
 
-
 export function fetchExecutionActionLogs(limit = 20) {
   return request(`/api/execution/action-logs?limit=${limit}`);
 }
@@ -272,7 +273,6 @@ export function resolveAlert(alertKey, payload = {}) {
   });
 }
 
-
 export function setMaintenanceMode(payload = {}) {
   return request('/api/control/maintenance/on', {
     method: 'POST',
@@ -312,7 +312,6 @@ export function evaluatePromotionPolicy(payload = {}) {
     body: JSON.stringify(payload),
   });
 }
-
 
 export function runObservabilitySnapshot(payload = {}) {
   return request('/api/observability/snapshot', {
@@ -360,9 +359,19 @@ export function runRecoveryAction(payload = {}) {
   });
 }
 
-
 export function fetchTrainingSummary() {
   return request('/api/training/summary');
+}
+
+export function fetchTrainingSettings() {
+  return request('/api/training/settings');
+}
+
+export function updateTrainingSettings(payload = {}) {
+  return request('/api/training/settings', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
 }
 
 export function fetchTrainingRuns(limit = 10) {
