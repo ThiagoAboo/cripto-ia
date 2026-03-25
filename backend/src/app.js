@@ -22,6 +22,7 @@ const policyRoutes = require('./routes/policy.routes');
 const observabilityRoutes = require('./routes/observability.routes');
 const runbooksRoutes = require('./routes/runbooks.routes');
 const incidentsRoutes = require('./routes/incidents.routes');
+const trainingRoutes = require('./routes/training.routes');
 
 const app = express();
 
@@ -31,7 +32,7 @@ app.use(express.json({ limit: '1mb' }));
 app.get('/', (_request, response) => {
   response.json({
     service: 'cripto-ia-backend',
-    version: '1.17.0',
+    version: '1.18.0',
     timestamp: new Date().toISOString(),
   });
 });
@@ -56,6 +57,7 @@ app.use('/api/policy', policyRoutes);
 app.use('/api/observability', observabilityRoutes);
 app.use('/api/runbooks', runbooksRoutes);
 app.use('/api/incidents', incidentsRoutes);
+app.use('/api/training', trainingRoutes);
 app.use('/internal', internalRoutes);
 
 app.use((error, _request, response, _next) => {

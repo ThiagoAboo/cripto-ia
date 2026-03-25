@@ -359,3 +359,31 @@ export function runRecoveryAction(payload = {}) {
     body: JSON.stringify(payload),
   });
 }
+
+
+export function fetchTrainingSummary() {
+  return request('/api/training/summary');
+}
+
+export function fetchTrainingRuns(limit = 10) {
+  return request(`/api/training/runs?limit=${limit}`);
+}
+
+export function fetchTrainingQualityReports(limit = 10) {
+  return request(`/api/training/quality-reports?limit=${limit}`);
+}
+
+export function fetchTrainingDriftReports(limit = 10) {
+  return request(`/api/training/drift-reports?limit=${limit}`);
+}
+
+export function fetchTrainingExpertReports(limit = 10) {
+  return request(`/api/training/expert-reports?limit=${limit}`);
+}
+
+export function runTrainingAssistance(payload = {}) {
+  return request('/api/training/run', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

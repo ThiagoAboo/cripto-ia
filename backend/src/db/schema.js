@@ -117,6 +117,13 @@ const DEFAULT_BOT_CONFIG = {
     defaultConfirmationInterval: '15m',
     persistEquityCurve: true,
   },
+  training: {
+    enabled: true,
+    evaluationWindowDays: 14,
+    allowSuggestedWeightsApply: true,
+    minQualityScoreForApply: 0.56,
+    maxHighDriftForApply: false,
+  },
 };
 
 async function initializeDatabase() {
@@ -757,6 +764,78 @@ await pool.query(`
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_readiness_reports_created_at
     ON readiness_reports (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS training_runs (
+      id BIGSERIAL PRIMARY KEY,
+      label TEXT NOT NULL,
+      objective TEXT NOT NULL DEFAULT 'quality_assistance',
+      symbol_scope JSONB NOT NULL DEFAULT '[]'::jsonb,
+      window_days INTEGER NOT NULL DEFAULT 14,
+      status TEXT NOT NULL DEFAULT 'completed',
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      suggested_config_override JSONB NOT NULL DEFAULT '{}'::jsonb,
+      requested_by TEXT NOT NULL DEFAULT 'system',
+      apply_suggested_weights BOOLEAN NOT NULL DEFAULT FALSE,
+      applied_config_version INTEGER,
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_training_runs_created_at
+    ON training_runs (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS expert_evaluation_reports (
+      id BIGSERIAL PRIMARY KEY,
+      training_run_id BIGINT REFERENCES training_runs(id) ON DELETE SET NULL,
+      window_days INTEGER NOT NULL DEFAULT 14,
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_expert_evaluation_reports_created_at
+    ON expert_evaluation_reports (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS model_quality_reports (
+      id BIGSERIAL PRIMARY KEY,
+      training_run_id BIGINT REFERENCES training_runs(id) ON DELETE SET NULL,
+      window_days INTEGER NOT NULL DEFAULT 14,
+      quality_status TEXT NOT NULL DEFAULT 'warning',
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_model_quality_reports_created_at
+    ON model_quality_reports (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS model_drift_reports (
+      id BIGSERIAL PRIMARY KEY,
+      training_run_id BIGINT REFERENCES training_runs(id) ON DELETE SET NULL,
+      symbol_scope JSONB NOT NULL DEFAULT '[]'::jsonb,
+      drift_level TEXT NOT NULL DEFAULT 'low',
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_model_drift_reports_created_at
+    ON model_drift_reports (created_at DESC);
   `);
 
   await pool.query(

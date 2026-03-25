@@ -48,6 +48,12 @@ import {
   runIncidentDrill,
   fetchRecoveryActions,
   runRecoveryAction,
+  fetchTrainingSummary,
+  fetchTrainingRuns,
+  fetchTrainingQualityReports,
+  fetchTrainingDriftReports,
+  fetchTrainingExpertReports,
+  runTrainingAssistance,
 } from './lib/api';
 import { formatDateTime, formatList, formatMoney, formatNumber, formatPercent } from './lib/format';
 import Section from './components/Section';
@@ -166,6 +172,13 @@ const DEFAULT_CONFIG = {
     defaultConfirmationInterval: '15m',
     persistEquityCurve: true,
   },
+  training: {
+    enabled: true,
+    evaluationWindowDays: 14,
+    allowSuggestedWeightsApply: true,
+    minQualityScoreForApply: 0.56,
+    maxHighDriftForApply: false,
+  },
 };
 
 const DEFAULT_STATUS = {
@@ -193,6 +206,17 @@ const DEFAULT_STATUS = {
   runbooks: [],
   recentIncidentDrills: [],
   recentRecoveryActions: [],
+  training: {
+    summary: null,
+    latestRun: null,
+    latestQualityReport: null,
+    latestDriftReport: null,
+    latestExpertReport: null,
+    recentRuns: [],
+    recentQualityReports: [],
+    recentDriftReports: [],
+    recentExpertEvaluations: [],
+  },
   timestamp: null,
 };
 
@@ -293,6 +317,11 @@ export default function App() {
     runbooks: [],
     incidentDrills: [],
     recoveryActions: [],
+    trainingSummary: null,
+    trainingRuns: [],
+    trainingQualityReports: [],
+    trainingDriftReports: [],
+    trainingExpertReports: [],
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -320,6 +349,15 @@ export default function App() {
     confirmationPhrase: '',
   });
 
+  const [trainingForm, setTrainingForm] = useState({
+    label: 'manual-training-assistance',
+    objective: 'quality_assistance',
+    windowDays: 14,
+    symbolScope: '',
+    applySuggestedWeights: false,
+  });
+  const [trainingLoading, setTrainingLoading] = useState(false);
+
   const loadEverything = async () => {
     setError('');
     try {
@@ -343,6 +381,11 @@ export default function App() {
         runbooksData,
         incidentDrillsData,
         recoveryActionsData,
+        trainingSummaryData,
+        trainingRunsData,
+        trainingQualityReportsData,
+        trainingDriftReportsData,
+        trainingExpertReportsData,
       ] = await Promise.all([
         fetchHealth(),
         fetchConfig(),
@@ -363,6 +406,11 @@ export default function App() {
         fetchRunbooks(12),
         fetchIncidentDrills(10),
         fetchRecoveryActions(10),
+        fetchTrainingSummary(),
+        fetchTrainingRuns(10),
+        fetchTrainingQualityReports(10),
+        fetchTrainingDriftReports(10),
+        fetchTrainingExpertReports(10),
       ]);
 
       setHealth(healthData);
@@ -386,6 +434,11 @@ export default function App() {
         runbooks: runbooksData.items || [],
         incidentDrills: incidentDrillsData.items || [],
         recoveryActions: recoveryActionsData.items || [],
+        trainingSummary: trainingSummaryData,
+        trainingRuns: trainingRunsData.items || [],
+        trainingQualityReports: trainingQualityReportsData.items || [],
+        trainingDriftReports: trainingDriftReportsData.items || [],
+        trainingExpertReports: trainingExpertReportsData.items || [],
       });
     } catch (requestError) {
       setError(requestError.message || 'Falha ao carregar dados do painel.');
@@ -417,6 +470,14 @@ export default function App() {
       symbol: current.symbol || draftConfig?.trading?.symbols?.[0] || 'BTCUSDT',
       requestedNotional: current.requestedNotional || draftConfig?.execution?.paper?.minOrderNotional || 100,
       confirmationPhrase: current.confirmationPhrase || draftConfig?.execution?.live?.confirmationPhrase || '',
+    }));
+  }, [draftConfig]);
+
+  useEffect(() => {
+    if (!draftConfig) return;
+    setTrainingForm((current) => ({
+      ...current,
+      windowDays: current.windowDays || draftConfig?.training?.evaluationWindowDays || 14,
     }));
   }, [draftConfig]);
 
@@ -469,6 +530,11 @@ export default function App() {
   const runbooks = status.runbooks?.length ? status.runbooks : auxData.runbooks;
   const recentIncidentDrills = status.recentIncidentDrills?.length ? status.recentIncidentDrills : auxData.incidentDrills;
   const recentRecoveryActions = status.recentRecoveryActions?.length ? status.recentRecoveryActions : auxData.recoveryActions;
+  const trainingSummary = status.training?.summary || auxData.trainingSummary?.summary || auxData.trainingSummary;
+  const recentTrainingRuns = status.training?.recentRuns?.length ? status.training.recentRuns : auxData.trainingRuns;
+  const recentTrainingQualityReports = status.training?.recentQualityReports?.length ? status.training.recentQualityReports : auxData.trainingQualityReports;
+  const recentTrainingDriftReports = status.training?.recentDriftReports?.length ? status.training.recentDriftReports : auxData.trainingDriftReports;
+  const recentTrainingExpertReports = status.training?.recentExpertEvaluations?.length ? status.training.recentExpertEvaluations : auxData.trainingExpertReports;
 
   const summaryCards = useMemo(() => {
     const portfolio = currentPortfolio || { baseCurrency: 'USDT' };
@@ -885,6 +951,27 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
   }
 };
 
+  const handleRunTrainingAssistance = async () => {
+    setTrainingLoading(true);
+    setError('');
+    try {
+      const result = await runTrainingAssistance({
+        label: trainingForm.label || 'manual-training-assistance',
+        objective: trainingForm.objective || 'quality_assistance',
+        windowDays: Number(trainingForm.windowDays || draftConfig?.training?.evaluationWindowDays || 14),
+        symbolScope: trainingForm.symbolScope,
+        applySuggestedWeights: Boolean(trainingForm.applySuggestedWeights),
+        requestedBy: 'dashboard',
+      });
+      setSaveMessage(`Treinamento assistido concluído. Run #${result.id}.`);
+      await loadEverything();
+    } catch (requestError) {
+      setError(requestError.message || 'Falha ao executar o treinamento assistido.');
+    } finally {
+      setTrainingLoading(false);
+    }
+  };
+
   const providerStatuses = socialSummary?.providers || [];
 
   return (
@@ -895,7 +982,7 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
           <h1>Dashboard operacional</h1>
           <p className="hero__subtitle">
             Painel desacoplado dos workers. Nesta etapa, além do REST + SSE, o sistema ganhou promoção
-            controlada, aprovação em duas etapas, rollback assistido, healthchecks de execução, reconciliação supervisionada, prévia de ordem, dry-run supervisionado, confirmação explícita e agora jobs agendados, alertas ativos, readiness checklist, policy gates mais fortes, maintenance mode, alertas externos, runbooks operacionais, simulação de incidentes e recuperação guiada.
+            controlada, aprovação em duas etapas, rollback assistido, healthchecks de execução, reconciliação supervisionada, prévia de ordem, dry-run supervisionado, confirmação explícita e agora jobs agendados, alertas ativos, readiness checklist, policy gates mais fortes, maintenance mode, alertas externos, runbooks operacionais, simulação de incidentes, recuperação guiada e governança do modelo com treinamento assistido, qualidade e drift.
           </p>
         </div>
         <div className="hero__status-group">
@@ -1830,6 +1917,94 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 {recentRecoveryActions?.length ? recentRecoveryActions.slice(0, 6).map((item) => (
                   <div key={item.id} className="muted">#{item.id} • {item.runbookKey} • {item.actionLabel} • {item.status} • {formatDateTime(item.createdAt)}</div>
                 )) : <div className="muted">Nenhuma ação de recuperação executada ainda.</div>}
+              </div>
+            </div>
+          </Section>
+
+          <Section title="Treinamento assistido e qualidade do modelo" subtitle="Avaliação contínua dos experts, sugestão de novos pesos e detecção de drift antes de ajustar a AI.">
+            <div className="grid two-columns">
+              <div className="list-stack">
+                <ConfigField label="Label do run" hint="Ajuda a identificar o motivo desta avaliação.">
+                  <input value={trainingForm.label} onChange={(event) => setTrainingForm((current) => ({ ...current, label: event.target.value }))} />
+                </ConfigField>
+                <ConfigField label="Janela de avaliação (dias)" hint="Usa decisões e ordens paper recentes para medir qualidade e drift.">
+                  <input type="number" min="1" max="90" value={trainingForm.windowDays} onChange={(event) => setTrainingForm((current) => ({ ...current, windowDays: parseNumberInput(event.target.value, 14) }))} />
+                </ConfigField>
+                <ConfigField label="Escopo de símbolos" hint="Opcional. Deixe vazio para usar a watchlist ativa.">
+                  <input value={trainingForm.symbolScope} placeholder="BTCUSDT,ETHUSDT" onChange={(event) => setTrainingForm((current) => ({ ...current, symbolScope: event.target.value }))} />
+                </ConfigField>
+                <label className="checkbox">
+                  <input type="checkbox" checked={Boolean(trainingForm.applySuggestedWeights)} onChange={(event) => setTrainingForm((current) => ({ ...current, applySuggestedWeights: event.target.checked }))} />
+                  <span>Aplicar pesos sugeridos automaticamente na config ativa</span>
+                </label>
+                <div className="button-row">
+                  <button className="button" disabled={trainingLoading} onClick={handleRunTrainingAssistance}>
+                    {trainingLoading ? 'Executando...' : 'Rodar treinamento assistido'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="list-stack compact-scroll">
+                <div className="list-item list-item--column">
+                  <div className="decision-card__row">
+                    <strong>Qualidade atual</strong>
+                    <Pill tone={trainingSummary?.qualitySummary?.qualityStatus === 'healthy' ? 'buy' : trainingSummary?.qualitySummary?.qualityStatus === 'warning' ? 'warning' : 'high'}>{trainingSummary?.qualitySummary?.qualityStatus || '—'}</Pill>
+                  </div>
+                  <div className="muted">Win rate: {formatPercent(trainingSummary?.qualitySummary?.winRate || 0)}</div>
+                  <div className="muted">Profit factor: {formatNumber(trainingSummary?.qualitySummary?.profitFactor || 0, 2)} • Confiança média: {formatPercent(trainingSummary?.qualitySummary?.avgConfidence || 0)}</div>
+                  <div className="muted">PnL total: {formatMoney(trainingSummary?.qualitySummary?.totalPnl || 0, draftConfig?.trading?.baseCurrency || 'USDT')}</div>
+                </div>
+
+                <div className="list-item list-item--column">
+                  <div className="decision-card__row">
+                    <strong>Drift de mercado</strong>
+                    <Pill tone={trainingSummary?.driftSummary?.driftLevel === 'low' ? 'buy' : trainingSummary?.driftSummary?.driftLevel === 'moderate' ? 'warning' : 'high'}>{trainingSummary?.driftSummary?.driftLevel || '—'}</Pill>
+                  </div>
+                  <div className="muted">Score: {formatNumber(trainingSummary?.driftSummary?.driftScore || 0, 3)}</div>
+                  <div className="muted">Símbolos: {formatList(trainingSummary?.symbols || [])}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid two-columns">
+              <div className="list-stack compact-scroll">
+                <strong>Experts mais fortes</strong>
+                {trainingSummary?.expertEvaluations?.length ? trainingSummary.expertEvaluations.slice(0, 7).map((item) => (
+                  <div key={item.expert} className="list-item list-item--column">
+                    <div className="decision-card__row">
+                      <strong>{item.expert}</strong>
+                      <Pill tone={item.qualityLabel === 'healthy' ? 'buy' : item.qualityLabel === 'warning' ? 'warning' : 'high'}>{item.qualityLabel}</Pill>
+                    </div>
+                    <div className="muted">Amostras: {formatNumber(item.samples || 0, 0)} • Hit rate: {formatPercent(item.hitRate || 0)}</div>
+                    <div className="muted">Peso atual: {formatNumber(item.currentWeight || 0, 4)} • sugerido: {formatNumber(trainingSummary?.suggestedWeights?.[item.expert] || 0, 4)}</div>
+                    <div className="muted">Contribuição: {formatNumber(item.contributionScore || 0, 3)} • confiança média: {formatPercent(item.avgConfidence || 0)}</div>
+                  </div>
+                )) : <div className="muted">Ainda não há avaliação suficiente dos experts.</div>}
+              </div>
+
+              <div className="list-stack compact-scroll">
+                <strong>Runs recentes</strong>
+                {recentTrainingRuns?.length ? recentTrainingRuns.slice(0, 5).map((item) => (
+                  <div key={item.id} className="list-item list-item--column">
+                    <div className="decision-card__row">
+                      <strong>#{item.id} • {item.label}</strong>
+                      <Pill tone={item.applySuggestedWeights ? 'warning' : 'info'}>{item.applySuggestedWeights ? 'aplicou pesos' : 'análise'}</Pill>
+                    </div>
+                    <div className="muted">{formatDateTime(item.createdAt)} • janela {item.windowDays}d</div>
+                    <div className="muted">Versão aplicada: {item.appliedConfigVersion || '—'}</div>
+                  </div>
+                )) : <div className="muted">Nenhum run de treinamento assistido ainda.</div>}
+
+                <strong>Relatórios recentes</strong>
+                {recentTrainingQualityReports?.slice(0, 3).map((item) => (
+                  <div key={`quality-${item.id}`} className="muted">Qualidade #{item.id}: {item.qualityStatus} • {formatDateTime(item.createdAt)}</div>
+                ))}
+                {recentTrainingDriftReports?.slice(0, 3).map((item) => (
+                  <div key={`drift-${item.id}`} className="muted">Drift #{item.id}: {item.driftLevel} • {formatDateTime(item.createdAt)}</div>
+                ))}
+                {recentTrainingExpertReports?.slice(0, 2).map((item) => (
+                  <div key={`expert-${item.id}`} className="muted">Experts #{item.id}: janela {item.windowDays}d • {formatDateTime(item.createdAt)}</div>
+                ))}
               </div>
             </div>
           </Section>
