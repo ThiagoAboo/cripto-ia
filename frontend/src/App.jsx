@@ -4,6 +4,7 @@ import {
   compareBacktests,
   fetchBacktests,
   fetchConfig,
+  fetchConfigAudit,
   fetchConfigHistory,
   fetchControl,
   fetchDecisions,
@@ -15,9 +16,11 @@ import {
   fetchSocialSummary,
   fetchStatus,
   fetchOptimizations,
+  fetchPromotions,
   getApiBaseUrl,
   runBacktest,
   runOptimization,
+  promoteOptimizationWinner,
   pauseControl,
   resumeControl,
   triggerEmergencyStop,
@@ -27,6 +30,117 @@ import { formatDateTime, formatList, formatMoney, formatNumber, formatPercent } 
 import Section from './components/Section';
 import StatCard from './components/StatCard';
 import StatusBadge from './components/StatusBadge';
+
+
+const DEFAULT_CONFIG = {
+  trading: {
+    enabled: false,
+    mode: 'paper',
+    baseCurrency: 'USDT',
+    symbols: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'],
+    primaryTimeframe: '5m',
+    confirmationTimeframes: ['15m', '1h'],
+    lookbackCandles: 240,
+    maxOpenPositions: 5,
+  },
+  risk: {
+    maxRiskPerTradePct: 1,
+    maxPortfolioExposurePct: 35,
+    maxSymbolExposurePct: 12,
+    stopLossAtr: 1.8,
+    takeProfitAtr: 2.6,
+    trailingStopAtr: 1.2,
+    enableTrailingStop: true,
+    allowAveragingDown: false,
+    cooldownMinutesAfterLoss: 45,
+    cooldownMinutesAfterStopLoss: 90,
+    maxConsecutiveLosses: 3,
+    dailyMaxLossPct: 3,
+    autoPauseOnCircuitBreaker: true,
+  },
+  execution: {
+    paper: {
+      initialCapital: 10000,
+      orderSizePct: 10,
+      minOrderNotional: 50,
+      feePct: 0.1,
+      slippagePct: 0.05,
+      allowMultipleEntriesPerSymbol: false,
+      sellFractionOnSignal: 1,
+    },
+    live: {
+      enabled: false,
+      provider: 'binance_spot',
+      useTestnet: true,
+      dryRun: true,
+      requireBackendLiveFlag: true,
+      recvWindow: 5000,
+    },
+  },
+  ai: {
+    loopIntervalSec: 15,
+    minDataPoints: 120,
+    minConfidenceToBuy: 0.64,
+    minConfidenceToSell: 0.6,
+    decisionMargin: 0.05,
+    respectRuntimePause: true,
+    respectSymbolCooldowns: true,
+    expertWeights: {
+      trend: 0.21,
+      momentum: 0.19,
+      volatility: 0.12,
+      liquidity: 0.12,
+      regime: 0.15,
+      pattern: 0.11,
+      risk: 0.1,
+    },
+    useSocialBlockOnly: true,
+    socialExtremeRiskThreshold: 85,
+  },
+  social: {
+    enabled: true,
+    blockOnlyOnExtremeRisk: true,
+    extremeRiskThreshold: 85,
+    strongScoreThreshold: 72,
+    promisingScoreThreshold: 58,
+    refreshIntervalSec: 600,
+    sources: ['coingecko'],
+    reddit: {
+      enabled: false,
+      subreddits: ['CryptoCurrency', 'CryptoMarkets'],
+      limitPerSubreddit: 25,
+    },
+    coingecko: {
+      enabled: true,
+      useDemo: true,
+      cacheFallbackEnabled: true,
+      attributionRequired: true,
+      minRetryAfterSec: 900,
+    },
+  },
+  market: {
+    source: 'binance_spot',
+    symbolsQuoteAsset: 'USDT',
+    defaultCandleLimit: 300,
+    candleCacheTtlSec: 20,
+  },
+  frontend: {
+    refreshIntervalSec: 5,
+  },
+  optimizer: {
+    enabled: true,
+    maxCandidatesPerRun: 8,
+    defaultObjective: 'balanced',
+    objectives: ['balanced', 'return', 'risk_adjusted', 'defensive'],
+    symbols: [],
+  },
+  backtest: {
+    defaultLimit: 400,
+    defaultInterval: '5m',
+    defaultConfirmationInterval: '15m',
+    persistEquityCurve: true,
+  },
+};
 
 const DEFAULT_STATUS = {
   workers: [],
@@ -40,6 +154,8 @@ const DEFAULT_STATUS = {
   configHistory: [],
   recentBacktests: [],
   recentOptimizations: [],
+  recentPromotions: [],
+  configAudit: [],
   timestamp: null,
 };
 
@@ -47,12 +163,53 @@ function deepClone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function deepMerge(base, override) {
+  if (Array.isArray(base) || Array.isArray(override)) {
+    return override !== undefined ? override : base;
+  }
+
+  if (typeof base !== 'object' || base === null) {
+    return override !== undefined ? override : base;
+  }
+
+  const result = { ...base };
+  const source = override || {};
+
+  Object.keys(source).forEach((key) => {
+    const baseValue = result[key];
+    const nextValue = source[key];
+
+    if (
+      baseValue
+      && nextValue
+      && typeof baseValue === 'object'
+      && typeof nextValue === 'object'
+      && !Array.isArray(baseValue)
+      && !Array.isArray(nextValue)
+    ) {
+      result[key] = deepMerge(baseValue, nextValue);
+    } else {
+      result[key] = nextValue;
+    }
+  });
+
+  return result;
+}
+
+function mergeConfigWithDefaults(config = {}) {
+  return deepMerge(DEFAULT_CONFIG, config || {});
+}
+
 function updateAtPath(target, path, value) {
-  const clone = deepClone(target);
+  const clone = deepClone(target || DEFAULT_CONFIG);
   const keys = path.split('.');
   let cursor = clone;
   for (let index = 0; index < keys.length - 1; index += 1) {
-    cursor = cursor[keys[index]];
+    const key = keys[index];
+    if (!cursor[key] || typeof cursor[key] !== 'object' || Array.isArray(cursor[key])) {
+      cursor[key] = {};
+    }
+    cursor = cursor[key];
   }
   cursor[keys[keys.length - 1]] = value;
   return clone;
@@ -91,6 +248,8 @@ export default function App() {
     socialSummary: null,
     control: null,
     configHistory: [],
+    configAudit: [],
+    promotions: [],
     backtests: [],
     optimizations: [],
   });
@@ -105,6 +264,7 @@ export default function App() {
   const [comparisonResult, setComparisonResult] = useState(null);
   const [optimizationLoading, setOptimizationLoading] = useState('');
   const [optimizationResult, setOptimizationResult] = useState(null);
+  const [promotionLoading, setPromotionLoading] = useState('');
 
   const loadEverything = async () => {
     setError('');
@@ -113,6 +273,8 @@ export default function App() {
         healthData,
         configData,
         configHistoryData,
+        configAuditData,
+        promotionsData,
         statusData,
         portfolioData,
         ordersData,
@@ -127,6 +289,8 @@ export default function App() {
         fetchHealth(),
         fetchConfig(),
         fetchConfigHistory(10),
+        fetchConfigAudit(15),
+        fetchPromotions(10),
         fetchStatus(),
         fetchPortfolio(),
         fetchOrders(20),
@@ -141,7 +305,7 @@ export default function App() {
 
       setHealth(healthData);
       setConfigRow(configData);
-      setDraftConfig(deepClone(configData.config));
+      setDraftConfig(deepClone(mergeConfigWithDefaults(configData?.config || {})));
       setStatus(statusData);
       setAuxData({
         portfolio: portfolioData,
@@ -152,6 +316,8 @@ export default function App() {
         socialSummary: socialSummaryData,
         control: controlData,
         configHistory: configHistoryData.items || [],
+        configAudit: configAuditData.items || [],
+        promotions: promotionsData.items || [],
         backtests: backtestsData.items || [],
         optimizations: optimizationsData.items || [],
       });
@@ -210,6 +376,8 @@ export default function App() {
   const socialSummary = status.social?.assetsCount !== undefined ? status.social : auxData.socialSummary;
   const controlState = status.control?.updatedAt ? status.control : auxData.control;
   const configHistory = status.configHistory?.length ? status.configHistory : auxData.configHistory;
+  const configAudit = status.configAudit?.length ? status.configAudit : auxData.configAudit;
+  const recentPromotions = status.recentPromotions?.length ? status.recentPromotions : auxData.promotions;
   const recentBacktests = status.recentBacktests?.length ? status.recentBacktests : auxData.backtests;
   const recentOptimizations = status.recentOptimizations?.length ? status.recentOptimizations : auxData.optimizations;
   const execution = status.execution || DEFAULT_STATUS.execution;
@@ -279,7 +447,7 @@ export default function App() {
     try {
       const updated = await updateConfig(draftConfig);
       setConfigRow(updated);
-      setDraftConfig(deepClone(updated.config));
+      setDraftConfig(deepClone(mergeConfigWithDefaults(updated.config || {})));
       setSaveMessage(`Configuração salva. Versão ${updated.version}.`);
       await loadEverything();
     } catch (requestError) {
@@ -396,8 +564,8 @@ const handleRunOptimization = async () => {
           <p className="eyebrow">Cripto IA</p>
           <h1>Dashboard operacional</h1>
           <p className="hero__subtitle">
-            Painel desacoplado dos workers. Nesta etapa, além do REST + SSE, o sistema ganhou pausa global,
-            emergency stop, cooldown por moeda e histórico de versões da configuração.
+            Painel desacoplado dos workers. Nesta etapa, além do REST + SSE, o sistema ganhou promoção
+            controlada de configurações vencedoras, trilha de auditoria e revisão segura antes de qualquer passo rumo ao live.
           </p>
         </div>
         <div className="hero__status-group">
@@ -788,10 +956,58 @@ const handleRunOptimization = async () => {
         <div className="muted">{formatDateTime(item.createdAt)}</div>
         <div className="muted">Melhor score médio: {formatNumber(item.summary?.averageScore || 0, 2)}</div>
         <div className="muted">Top: {item.summary?.bestOverall?.symbol || '—'} / {item.summary?.bestOverall?.candidateName || '—'}</div>
+        <div className="button-row">
+          <button
+            className="button"
+            disabled={promotionLoading === `paper_active-${item.id}`}
+            onClick={() => handlePromoteWinner(item.id, 'paper_active')}
+          >
+            {promotionLoading === `paper_active-${item.id}` ? 'Promovendo...' : 'Promover p/ paper'}
+          </button>
+          <button
+            className="button button--ghost"
+            disabled={promotionLoading === `live_candidate-${item.id}`}
+            onClick={() => handlePromoteWinner(item.id, 'live_candidate')}
+          >
+            {promotionLoading === `live_candidate-${item.id}` ? 'Registrando...' : 'Marcar p/ live review'}
+          </button>
+        </div>
       </div>
     )) : <div className="muted">Sem calibrações recentes.</div>}
   </div>
 </Section>
+
+          <Section title="Promoções recentes" subtitle="Aplicações em paper e candidatas para revisão live, sempre com segurança.">
+            <div className="list-stack compact-scroll">
+              {recentPromotions?.length ? recentPromotions.map((item) => (
+                <div key={item.id} className="list-item list-item--column">
+                  <div className="decision-card__row">
+                    <strong>{item.summary?.candidateName || 'winner'}</strong>
+                    <Pill tone={item.status === 'applied' ? 'buy' : 'warning'}>{item.targetChannel}</Pill>
+                  </div>
+                  <div className="muted">{item.summary?.symbol || '—'} • {item.summary?.regimeLabel || 'mixed'}</div>
+                  <div className="muted">Status {item.status} • versão {item.appliedVersion || 'não aplicada'}</div>
+                  <div className="muted">{formatDateTime(item.createdAt)}</div>
+                </div>
+              )) : <div className="muted">Sem promoções recentes.</div>}
+            </div>
+          </Section>
+
+          <Section title="Auditoria de configuração" subtitle="Toda mudança relevante de configuração fica registrada com origem e versão.">
+            <div className="list-stack compact-scroll">
+              {configAudit?.length ? configAudit.map((item) => (
+                <div key={item.id} className="list-item list-item--column">
+                  <div className="decision-card__row">
+                    <strong>{item.actionType}</strong>
+                    <Pill tone="info">{item.actor}</Pill>
+                  </div>
+                  <div className="muted">Versão {item.fromVersion || '—'} → {item.toVersion || '—'}</div>
+                  <div className="muted">Origem {item.sourceType || 'manual'} #{item.sourceId || '—'}</div>
+                  <div className="muted">{formatDateTime(item.createdAt)}</div>
+                </div>
+              )) : <div className="muted">Sem auditoria registrada.</div>}
+            </div>
+          </Section>
 
           <Section title="Histórico de configuração" subtitle="Versões anteriores para auditoria e rollback manual.">
             <div className="list-stack compact-scroll">

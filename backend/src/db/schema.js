@@ -133,6 +133,50 @@ async function initializeDatabase() {
     );
   `);
 
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS config_change_audit (
+      id BIGSERIAL PRIMARY KEY,
+      action_type TEXT NOT NULL,
+      actor TEXT NOT NULL DEFAULT 'system',
+      source_type TEXT,
+      source_id BIGINT,
+      from_version INTEGER,
+      to_version INTEGER,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_config_change_audit_created_at
+    ON config_change_audit (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS config_promotions (
+      id BIGSERIAL PRIMARY KEY,
+      source_type TEXT NOT NULL,
+      source_run_id BIGINT,
+      source_result_rank INTEGER NOT NULL DEFAULT 1,
+      target_channel TEXT NOT NULL,
+      status TEXT NOT NULL,
+      approved_by TEXT NOT NULL DEFAULT 'system',
+      reason TEXT,
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      config_override JSONB NOT NULL DEFAULT '{}'::jsonb,
+      promoted_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      applied_version INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      applied_at TIMESTAMPTZ
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_config_promotions_created_at
+    ON config_promotions (created_at DESC);
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bot_runtime_controls (
       control_key TEXT PRIMARY KEY,

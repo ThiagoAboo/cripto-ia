@@ -41,6 +41,10 @@ export function fetchConfigHistory(limit = 10) {
   return request(`/api/config/history?limit=${limit}`);
 }
 
+export function fetchConfigAudit(limit = 20) {
+  return request(`/api/config/audit?limit=${limit}`);
+}
+
 export function updateConfig(config) {
   return request('/api/config', {
     method: 'PUT',
@@ -133,7 +137,6 @@ export function compareBacktests(payload) {
   });
 }
 
-
 export function fetchOptimizations(limit = 10) {
   return request(`/api/optimizer?limit=${limit}`);
 }
@@ -146,5 +149,16 @@ export function runOptimization(payload) {
   return request('/api/optimizer/run', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export function fetchPromotions(limit = 10) {
+  return request(`/api/promotions?limit=${limit}`);
+}
+
+export function promoteOptimizationWinner(optimizationRunId, payload) {
+  return request(`/api/promotions/from-optimizer/${optimizationRunId}`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
   });
 }

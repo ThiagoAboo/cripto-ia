@@ -1,5 +1,5 @@
 const express = require('express');
-const { getActiveConfig, getConfigHistory, updateActiveConfig } = require('../services/config.service');
+const { getActiveConfig, getConfigHistory, listConfigAudit, updateActiveConfig } = require('../services/config.service');
 const { publish } = require('../services/eventBus.service');
 
 const router = express.Router();
@@ -23,6 +23,16 @@ router.get('/history', async (request, response, next) => {
   }
 });
 
+router.get('/audit', async (request, response, next) => {
+  try {
+    const limit = Number(request.query.limit || 20);
+    const items = await listConfigAudit({ limit });
+    response.json({ count: items.length, items });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.put('/', async (request, response, next) => {
   try {
     const nextConfig = request.body;
@@ -32,7 +42,11 @@ router.put('/', async (request, response, next) => {
       return;
     }
 
-    const updated = await updateActiveConfig(nextConfig);
+    const updated = await updateActiveConfig(nextConfig, {
+      actionType: 'config_update_manual',
+      actor: 'dashboard',
+      reason: 'manual_update',
+    });
     publish('config.updated', {
       version: updated.version,
       updatedAt: updated.updated_at,
