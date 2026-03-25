@@ -281,6 +281,229 @@ function parseNumberInput(value, fallback = 0) {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
+function traduzirModoExecucao(value) {
+  const mapa = {
+    paper: 'simulado',
+    live: 'real',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirCanalPromocao(value) {
+  const mapa = {
+    paper_active: 'simulado ativo',
+    live_candidate: 'candidato ao modo real',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirAcaoDecisao(value) {
+  const mapa = {
+    BUY: 'COMPRA',
+    SELL: 'VENDA',
+    HOLD: 'MANTER',
+    BLOCK: 'BLOQUEAR',
+  };
+  return mapa[String(value || '').toUpperCase()] || value || '—';
+}
+
+function traduzirClassificacaoSocial(value) {
+  const mapa = {
+    FORTE: 'FORTE',
+    PROMISSORA: 'PROMISSORA',
+    NEUTRA: 'NEUTRA',
+    ALTO_RISCO: 'ALTO RISCO',
+  };
+  return mapa[String(value || '').toUpperCase()] || value || '—';
+}
+
+function traduzirStatusGenerico(value) {
+  const chave = String(value || '').toLowerCase();
+  const mapa = {
+    ok: 'ok',
+    warning: 'atenção',
+    error: 'erro',
+    failed: 'falhou',
+    success: 'sucesso',
+    sent: 'enviado',
+    delivered: 'entregue',
+    prepared: 'preparado',
+    acknowledged: 'reconhecido',
+    resolved: 'resolvido',
+    pending: 'pendente',
+    approved: 'aprovado',
+    rejected: 'rejeitado',
+    pass: 'aprovado',
+    warn: 'atenção',
+    ready: 'pronto',
+    healthy: 'saudável',
+    stale: 'desatualizado',
+    backoff: 'em espera',
+    configured: 'configurado',
+    partial: 'parcial',
+    enabled: 'habilitado',
+    disabled: 'desligado',
+    live_ready: 'pronto para real',
+    live_incomplete: 'real incompleto',
+    paper_active: 'simulado ativo',
+    dry_run: 'simulação',
+    applied: 'aplicado',
+    rollback_applied: 'rollback aplicado',
+    analysis: 'análise',
+    blocked: 'bloqueado',
+    active: 'ativo',
+    inactive: 'inativo',
+    buy: 'compra',
+    sell: 'venda',
+    hold: 'manter',
+  };
+  return mapa[chave] || value || '—';
+}
+
+function traduzirSeveridade(value) {
+  const mapa = {
+    critical: 'crítico',
+    high: 'alto',
+    warning: 'atenção',
+    medium: 'médio',
+    low: 'baixo',
+    info: 'informativo',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirNivelDrift(value) {
+  const mapa = {
+    low: 'baixo',
+    moderate: 'moderado',
+    high: 'alto',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirQualidade(value) {
+  const mapa = {
+    healthy: 'saudável',
+    warning: 'atenção',
+    weak: 'fraco',
+    poor: 'fraco',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirRegime(value) {
+  const mapa = {
+    mixed: 'misto',
+    trend_bull: 'tendência de alta',
+    trend_bear: 'tendência de baixa',
+    range: 'lateral',
+    volatile: 'volátil',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirCheckExecucao(value) {
+  const mapa = {
+    ok: 'ok',
+    skip: 'ignorado',
+    fail: 'falha',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirSimNao(value) {
+  return value ? 'sim' : 'não';
+}
+
+
+function traduzirEspecialista(value) {
+  const mapa = {
+    trend: 'tendência',
+    momentum: 'momento',
+    volatility: 'volatilidade',
+    liquidity: 'liquidez',
+    regime: 'regime',
+    pattern: 'padrões',
+    risk: 'risco',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirObjetivo(value) {
+  const mapa = {
+    balanced: 'equilibrado',
+    return: 'retorno',
+    risk_adjusted: 'ajustado ao risco',
+    defensive: 'defensivo',
+    quality_assistance: 'assistência de qualidade',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirChaveJob(value) {
+  const mapa = {
+    execution_healthcheck: 'verificação de saúde da execução',
+    execution_reconciliation: 'reconciliação da execução',
+    readiness_assessment: 'avaliação de prontidão',
+    alert_scan: 'varredura de alertas',
+    observability_snapshot: 'instantâneo de observabilidade',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirTipoAcaoExecucao(value) {
+  const mapa = {
+    preview_order: 'prévia de ordem',
+    live_submit: 'envio supervisionado',
+    submit_order: 'envio de ordem',
+    healthcheck: 'verificação de saúde',
+    reconciliation: 'reconciliação',
+    risk_sync: 'sincronização de risco',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirCanalNotificacao(value) {
+  const mapa = {
+    webhook: 'webhook',
+    telegram: 'telegram',
+    email_ready: 'e-mail preparado',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirRunbook(value) {
+  const mapa = {
+    worker_stale: 'worker desatualizado',
+    execution_health_failed: 'falha na saúde da execução',
+    reconciliation_mismatch: 'divergência na reconciliação',
+    social_provider_degraded: 'provedor social degradado',
+    emergency_stop_triggered: 'parada de emergência acionada',
+    market_data_stale: 'dados de mercado desatualizados',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirGate(value) {
+  const mapa = {
+    promotion_request: 'solicitação de promoção',
+    promotion_apply: 'aplicação de promoção',
+    live_candidate_review: 'revisão de candidato ao modo real',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+function traduzirFonte(value) {
+  const mapa = {
+    manual: 'manual',
+    optimizer: 'otimizador',
+    rollback: 'rollback',
+    dashboard: 'painel',
+  };
+  return mapa[String(value || '').toLowerCase()] || value || '—';
+}
+
+
 function ConfigField({ label, hint, children }) {
   return (
     <label className="field">
@@ -549,7 +772,7 @@ export default function App() {
         tone: health?.ok ? 'positive' : 'danger',
       },
       {
-        label: 'Equity Paper',
+        label: 'Patrimônio simulado',
         value: formatMoney(portfolio.equity || 0, baseCurrency),
         hint: `Caixa: ${formatMoney(portfolio.cashBalance || 0, baseCurrency)}`,
       },
@@ -561,8 +784,8 @@ export default function App() {
       },
       {
         label: 'Controle do Bot',
-        value: controlState?.emergencyStop ? 'EMERGÊNCIA' : controlState?.maintenanceMode ? 'MAINTENANCE' : controlState?.isPaused ? 'PAUSADO' : 'ATIVO',
-        hint: controlState?.maintenanceMode ? (controlState?.maintenanceReason || 'Maintenance mode ativo') : (controlState?.pauseReason || 'Sem bloqueios globais'),
+        value: controlState?.emergencyStop ? 'EMERGÊNCIA' : controlState?.maintenanceMode ? 'MANUTENÇÃO' : controlState?.isPaused ? 'PAUSADO' : 'ATIVO',
+        hint: controlState?.maintenanceMode ? (controlState?.maintenanceReason || 'Modo de manutenção ativo') : (controlState?.pauseReason || 'Sem bloqueios globais'),
         tone: controlState?.emergencyStop ? 'danger' : controlState?.maintenanceMode ? 'warning' : controlState?.isPaused ? 'warning' : 'positive',
       },
       {
@@ -637,7 +860,7 @@ export default function App() {
         confirmationInterval: backtestForm.confirmationInterval,
         limit: Number(backtestForm.limit || 400),
       });
-      setSaveMessage(`Backtest concluído para ${result.symbol}. Run #${result.id}.`);
+      setSaveMessage(`Backtest concluído para ${result.symbol}. Execução #${result.id}.`);
       await loadEverything();
     } catch (requestError) {
       setError(requestError.message || 'Falha ao executar backtest.');
@@ -737,7 +960,7 @@ const handleRequestPromotion = async (optimizationRunId, targetChannel) => {
       reason: `request:${targetChannel}`,
     });
     setPromotionSimulation(result.simulation ? { ...result.simulation, summary: result.request?.summary } : null);
-    setSaveMessage(`Solicitação #${result.request?.id} criada para ${targetChannel}.`);
+    setSaveMessage(`Solicitação #${result.request?.id} criada para ${traduzirCanalPromocao(targetChannel)}.`);
     await loadEverything();
   } catch (requestError) {
     setError(requestError.message || 'Falha ao solicitar aprovação.');
@@ -828,7 +1051,7 @@ const handlePreviewLiveOrder = async () => {
     setSaveMessage('Prévia da ordem carregada.');
     await loadEverything();
   } catch (requestError) {
-    setError(requestError.message || 'Falha ao gerar prévia da ordem live.');
+    setError(requestError.message || 'Falha ao gerar prévia da ordem real.');
   } finally {
     setExecutionActionLoading('');
   }
@@ -852,10 +1075,10 @@ const handleSubmitLiveOrder = async () => {
       previewTicketId: executionPreview?.previewTicket?.id || null,
     });
     setExecutionPreview((current) => current ? { ...current, lastSubmitResult: result } : { lastSubmitResult: result });
-    setSaveMessage(`Execução supervisionada concluída com status ${result.status}.`);
+    setSaveMessage(`Execução supervisionada concluída com status ${traduzirStatusGenerico(result.status)}.`);
     await loadEverything();
   } catch (requestError) {
-    setError(requestError.message || 'Falha ao enviar ordem live supervisionada.');
+    setError(requestError.message || 'Falha ao enviar ordem real supervisionada.');
   } finally {
     setExecutionActionLoading('');
   }
@@ -882,14 +1105,14 @@ const handleOpsAction = async (actionName, action, successMessage) => {
   try {
     if (enabled) {
       await setMaintenanceMode({ reason: 'dashboard_maintenance_mode', scope: 'system' });
-      setSaveMessage('Maintenance mode ativado.');
+      setSaveMessage('Modo de manutenção ativado.');
     } else {
       await clearMaintenanceMode({ resume: false });
-      setSaveMessage('Maintenance mode desativado.');
+      setSaveMessage('Modo de manutenção desativado.');
     }
     await loadEverything();
   } catch (requestError) {
-    setError(requestError.message || 'Falha ao atualizar maintenance mode.');
+    setError(requestError.message || 'Falha ao atualizar o modo de manutenção.');
   } finally {
     setOpsActionLoading('');
   }
@@ -900,7 +1123,7 @@ const handleRunObservabilitySnapshot = async () => {
   setError('');
   try {
     await runObservabilitySnapshot({ source: 'dashboard' });
-    setSaveMessage('Snapshot de observabilidade gerado.');
+    setSaveMessage('Instantâneo de observabilidade gerado.');
     await loadEverything();
   } catch (requestError) {
     setError(requestError.message || 'Falha ao gerar snapshot de observabilidade.');
@@ -963,7 +1186,7 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
         applySuggestedWeights: Boolean(trainingForm.applySuggestedWeights),
         requestedBy: 'dashboard',
       });
-      setSaveMessage(`Treinamento assistido concluído. Run #${result.id}.`);
+      setSaveMessage(`Treinamento assistido concluído. Execução #${result.id}.`);
       await loadEverything();
     } catch (requestError) {
       setError(requestError.message || 'Falha ao executar o treinamento assistido.');
@@ -982,7 +1205,7 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
           <h1>Dashboard operacional</h1>
           <p className="hero__subtitle">
             Painel desacoplado dos workers. Nesta etapa, além do REST + SSE, o sistema ganhou promoção
-            controlada, aprovação em duas etapas, rollback assistido, healthchecks de execução, reconciliação supervisionada, prévia de ordem, dry-run supervisionado, confirmação explícita e agora jobs agendados, alertas ativos, readiness checklist, policy gates mais fortes, maintenance mode, alertas externos, runbooks operacionais, simulação de incidentes, recuperação guiada e governança do modelo com treinamento assistido, qualidade e drift.
+            controlada, aprovação em duas etapas, rollback assistido, healthchecks de execução, reconciliação supervisionada, prévia de ordem, dry-run supervisionado, confirmação explícita e agora jobs agendados, alertas ativos, checklist de prontidão, policy gates mais fortes, modo de manutenção, alertas externos, runbooks operacionais, simulação de incidentes, recuperação guiada e governança do modelo com treinamento assistido, qualidade e drift.
           </p>
         </div>
         <div className="hero__status-group">
@@ -1025,21 +1248,21 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                   disabled={actionLoading === 'emergency'}
                   onClick={() => handleControlAction('emergency', () => triggerEmergencyStop('manual_emergency_stop_from_dashboard'))}
                 >
-                  {actionLoading === 'emergency' ? 'Acionando...' : 'Emergency Stop'}
+                  {actionLoading === 'emergency' ? 'Acionando...' : 'Parada de emergência'}
                 </button>
                 <button
                   className="button button--ghost"
                   disabled={opsActionLoading === 'maintenance-on'}
                   onClick={() => handleMaintenanceAction(true)}
                 >
-                  {opsActionLoading === 'maintenance-on' ? 'Ativando...' : 'Maintenance ON'}
+                  {opsActionLoading === 'maintenance-on' ? 'Ativando...' : 'Ativar manutenção'}
                 </button>
                 <button
                   className="button button--ghost"
                   disabled={opsActionLoading === 'maintenance-off'}
                   onClick={() => handleMaintenanceAction(false)}
                 >
-                  {opsActionLoading === 'maintenance-off' ? 'Desativando...' : 'Maintenance OFF'}
+                  {opsActionLoading === 'maintenance-off' ? 'Desativando...' : 'Desativar manutenção'}
                 </button>
               </div>
             )}
@@ -1052,10 +1275,10 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 </div>
                 <div className="button-row">
                   <Pill tone={controlState?.emergencyStop ? 'high' : controlState?.maintenanceMode ? 'warning' : controlState?.isPaused ? 'warning' : 'buy'}>
-                    {controlState?.emergencyStop ? 'emergência' : controlState?.maintenanceMode ? 'maintenance' : controlState?.isPaused ? 'pausado' : 'ativo'}
+                    {controlState?.emergencyStop ? 'emergência' : controlState?.maintenanceMode ? 'manutenção' : controlState?.isPaused ? 'pausado' : 'ativo'}
                   </Pill>
                   {controlState?.pauseReason ? <span className="muted">Motivo: {controlState.pauseReason}</span> : null}
-                  {controlState?.maintenanceMode ? <span className="muted">Escopo: {controlState.maintenanceScope || 'system'}{controlState?.maintenanceUntil ? ` • até ${formatDateTime(controlState.maintenanceUntil)}` : ''}</span> : null}
+                  {controlState?.maintenanceMode ? <span className="muted">Escopo: {controlState.maintenanceScope || 'sistema'}{controlState?.maintenanceUntil ? ` • até ${formatDateTime(controlState.maintenanceUntil)}` : ''}</span> : null}
                 </div>
               </div>
               <div className="list-item list-item--column">
@@ -1078,15 +1301,15 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
 
           <Section
             title="Execução supervisionada"
-            subtitle="Healthchecks e reconciliação ajudam a preparar testnet/live sem ligar o modo live por acidente."
+            subtitle="Healthchecks e reconciliação ajudam a preparar testnet/modo real sem ligar o modo real por acidente."
             actions={(
               <div className="button-row">
                 <button
                   className="button"
                   disabled={executionActionLoading === 'healthcheck'}
-                  onClick={() => handleExecutionAction('healthcheck', () => runExecutionHealthcheck({ requestedBy: 'dashboard' }), 'Healthcheck de execução concluído.')}
+                  onClick={() => handleExecutionAction('healthcheck', () => runExecutionHealthcheck({ requestedBy: 'dashboard' }), 'Verificação de saúde da execução concluída.')}
                 >
-                  {executionActionLoading === 'healthcheck' ? 'Checando...' : 'Rodar healthcheck'}
+                  {executionActionLoading === 'healthcheck' ? 'Checando...' : 'Rodar verificação de saúde'}
                 </button>
                 <button
                   className="button"
@@ -1101,14 +1324,14 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
             <div className="list-stack">
               <div className="list-item list-item--column">
                 <div>
-                  <strong>Status atual do adapter</strong>
+                  <strong>Status atual do adaptador</strong>
                   <div className="muted">
-                    Modo: {execution.mode} • Provider: {execution.provider} • Testnet: {execution.useTestnet ? 'sim' : 'não'} • Dry run: {execution.dryRun ? 'sim' : 'não'}
+                    Modo: {traduzirModoExecucao(execution.mode)} • Provedor: {execution.provider} • Testnet: {traduzirSimNao(execution.useTestnet)} • Simulação: {traduzirSimNao(execution.dryRun)}
                   </div>
                 </div>
                 <div className="button-row">
                   <Pill tone={execution.liveReady ? 'buy' : execution.mode === 'live' ? 'warning' : 'info'}>
-                    {execution.liveReady ? 'live ready' : execution.mode === 'live' ? 'live incompleto' : 'paper ativo'}
+                    {execution.liveReady ? 'pronto para real' : execution.mode === 'live' ? 'real incompleto' : 'simulado ativo'}
                   </Pill>
                   {execution.supervised ? <Pill tone="warning">supervisionado</Pill> : null}
                   {execution.requireExplicitConfirmation ? <Pill tone="high">confirmação explícita</Pill> : null}
@@ -1117,15 +1340,15 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
 
               <div className="list-item list-item--column">
                 <div>
-                  <strong>Último healthcheck</strong>
+                  <strong>Última verificação de saúde</strong>
                   <div className="muted">
                     {execution.latestHealthCheck?.createdAt ? formatDateTime(execution.latestHealthCheck.createdAt) : 'Ainda não executado'}
                   </div>
                 </div>
                 <div className="button-row">
-                  {execution.latestHealthCheck ? <Pill tone={execution.latestHealthCheck.status === 'ok' ? 'buy' : execution.latestHealthCheck.status === 'warning' ? 'warning' : 'high'}>{execution.latestHealthCheck.status}</Pill> : <Pill tone="info">sem healthcheck</Pill>}
+                  {execution.latestHealthCheck ? <Pill tone={execution.latestHealthCheck.status === 'ok' ? 'buy' : execution.latestHealthCheck.status === 'warning' ? 'warning' : 'high'}>{traduzirStatusGenerico(execution.latestHealthCheck.status)}</Pill> : <Pill tone="info">sem verificação</Pill>}
                   {execution.latestHealthCheck?.summary?.checks?.map((item) => (
-                    <span key={item.check} className="muted">{item.check}:{item.ok ? 'ok' : item.skipped ? 'skip' : 'falha'}</span>
+                    <span key={item.check} className="muted">{item.check}:{item.ok ? 'ok' : item.skipped ? 'ignorado' : 'falha'}</span>
                   ))}
                 </div>
               </div>
@@ -1134,23 +1357,23 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 <div>
                   <strong>Prévia e envio supervisionado</strong>
                   <div className="muted">
-                    Use esta área para montar uma ordem testnet/live com revisão de filtros, notional e frase de confirmação.
+                    Use esta área para montar uma ordem testnet/real com revisão de filtros, valor nocional e frase de confirmação.
                   </div>
                 </div>
                 <div className="form-grid">
                   <ConfigField label="Símbolo">
                     <input value={executionForm.symbol} onChange={(event) => setExecutionForm((current) => ({ ...current, symbol: event.target.value.toUpperCase() }))} />
                   </ConfigField>
-                  <ConfigField label="Lado">
+                  <ConfigField label="Direção">
                     <select value={executionForm.side} onChange={(event) => setExecutionForm((current) => ({ ...current, side: event.target.value }))}>
-                      <option value="BUY">BUY</option>
-                      <option value="SELL">SELL</option>
+                      <option value="BUY">COMPRA</option>
+                      <option value="SELL">VENDA</option>
                     </select>
                   </ConfigField>
-                  <ConfigField label="Notional (BUY)">
+                  <ConfigField label="Valor nocional (compra)">
                     <input type="number" step="0.01" value={executionForm.requestedNotional} onChange={(event) => setExecutionForm((current) => ({ ...current, requestedNotional: parseNumberInput(event.target.value, 0) }))} />
                   </ConfigField>
-                  <ConfigField label="Quantidade (SELL)">
+                  <ConfigField label="Quantidade (venda)">
                     <input type="number" step="0.000001" value={executionForm.requestedQuantity} onChange={(event) => setExecutionForm((current) => ({ ...current, requestedQuantity: parseNumberInput(event.target.value, 0) }))} />
                   </ConfigField>
                   <ConfigField label="Frase de confirmação" hint={`Obrigatória: ${draftConfig?.execution?.live?.confirmationPhrase || 'EXECUTAR_LIVE_TESTNET'}`}>
@@ -1162,21 +1385,21 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                     {executionActionLoading === 'preview' ? 'Gerando...' : 'Gerar prévia'}
                   </button>
                   <button className="button button--danger" disabled={executionActionLoading === 'submit-live'} onClick={handleSubmitLiveOrder}>
-                    {executionActionLoading === 'submit-live' ? 'Enviando...' : 'Enviar supervisionado'}
+                    {executionActionLoading === 'submit-live' ? 'Enviando...' : 'Enviar ordem supervisionada'}
                   </button>
                 </div>
                 {executionPreview ? (
                   <div className="metric-grid">
                     <div className="list-item list-item--column">
-                      <strong>Preview</strong>
+                      <strong>Prévia</strong>
                       <div className="muted">Preço: {formatMoney(executionPreview.price || 0, draftConfig?.trading?.baseCurrency || 'USDT')}</div>
-                      <div className="muted">Notional: {formatMoney(executionPreview.estimatedNotional || executionPreview.normalizedNotional || 0, draftConfig?.trading?.baseCurrency || 'USDT')}</div>
+                      <div className="muted">Valor nocional: {formatMoney(executionPreview.estimatedNotional || executionPreview.normalizedNotional || 0, draftConfig?.trading?.baseCurrency || 'USDT')}</div>
                       <div className="muted">Quantidade: {formatNumber(executionPreview.normalizedQuantity || 0, 6)}</div>
-                      <div className="muted">Ticket: {executionPreview.previewTicket?.id || 'n/a'} • expira em {formatDateTime(executionPreview.previewTicket?.expiresAt)}</div>
+                      <div className="muted">Ticket: {executionPreview.previewTicket?.id || 'não disponível'} • expira em {formatDateTime(executionPreview.previewTicket?.expiresAt)}</div>
                     </div>
                     <div className="list-item list-item--column">
-                      <strong>Warnings</strong>
-                      {(executionPreview.warnings || []).length ? (executionPreview.warnings || []).map((item) => <span key={item} className="muted">{item}</span>) : <span className="muted">sem warnings críticos</span>}
+                      <strong>Alertas</strong>
+                      {(executionPreview.warnings || []).length ? (executionPreview.warnings || []).map((item) => <span key={item} className="muted">{item}</span>) : <span className="muted">sem alertas críticos</span>}
                     </div>
                     <div className="list-item list-item--column">
                       <strong>Confirmações</strong>
@@ -1191,12 +1414,12 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                   <div>
                     <strong>Reconciliação #{item.id}</strong>
                     <div className="muted">
-                      {formatDateTime(item.createdAt)} • Open orders remotas: {formatNumber(item.summary?.remoteOpenOrdersCount || 0, 0)} • Saldos não zerados: {formatNumber(item.summary?.remoteNonZeroBalancesCount || 0, 0)}
+                      {formatDateTime(item.createdAt)} • Ordens abertas remotas: {formatNumber(item.summary?.remoteOpenOrdersCount || 0, 0)} • Saldos não zerados: {formatNumber(item.summary?.remoteNonZeroBalancesCount || 0, 0)}
                     </div>
                   </div>
                   <div className="button-row">
-                    <Pill tone={item.status === 'ok' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{item.status}</Pill>
-                    <span className="muted">mismatches: {formatNumber(item.summary?.mismatchCounts?.unmatchedBalances || 0, 0)}/{formatNumber(item.summary?.mismatchCounts?.localOnlyPositions || 0, 0)}/{formatNumber(item.summary?.mismatchCounts?.remoteOnlySymbols || 0, 0)}</span>
+                    <Pill tone={item.status === 'ok' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{traduzirStatusGenerico(item.status)}</Pill>
+                    <span className="muted">divergências: {formatNumber(item.summary?.mismatchCounts?.unmatchedBalances || 0, 0)}/{formatNumber(item.summary?.mismatchCounts?.localOnlyPositions || 0, 0)}/{formatNumber(item.summary?.mismatchCounts?.remoteOnlySymbols || 0, 0)}</span>
                   </div>
                 </div>
               ))}
@@ -1204,13 +1427,13 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
               {(execution.recentActionLogs || []).slice(0, 5).map((item) => (
                 <div key={item.id} className="list-item list-item--column">
                   <div>
-                    <strong>{item.actionType}</strong>
+                    <strong>{traduzirTipoAcaoExecucao(item.actionType)}</strong>
                     <div className="muted">
-                      {formatDateTime(item.createdAt)} • {item.actor} • {item.symbol || 'sem símbolo'} {item.side ? `• ${item.side}` : ''}
+                      {formatDateTime(item.createdAt)} • {item.actor} • {item.symbol || 'sem símbolo'} {item.side ? `• ${traduzirAcaoDecisao(item.side)}` : ''}
                     </div>
                   </div>
                   <div className="button-row">
-                    <Pill tone={item.status === 'ok' || item.status === 'dry_run' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{item.status}</Pill>
+                    <Pill tone={item.status === 'ok' || item.status === 'dry_run' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{traduzirStatusGenerico(item.status)}</Pill>
                     {item.confirmationRequired ? <Pill tone="high">confirmação</Pill> : null}
                   </div>
                 </div>
@@ -1232,9 +1455,9 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 >
                   {opsActionLoading === 'observability-snapshot' ? 'Gerando...' : 'Gerar snapshot'}
                 </button>
-                <a className="button button--ghost" href={buildObservabilityExportUrl('metrics_snapshots', 'json', 200)} target="_blank" rel="noreferrer">Export métricas JSON</a>
-                <a className="button button--ghost" href={buildObservabilityExportUrl('execution_action_logs', 'csv', 1000)} target="_blank" rel="noreferrer">Export action logs CSV</a>
-                <a className="button button--ghost" href={buildObservabilityExportUrl('ai_decisions', 'csv', 1000)} target="_blank" rel="noreferrer">Export decisões CSV</a>
+                <a className="button button--ghost" href={buildObservabilityExportUrl('metrics_snapshots', 'json', 200)} target="_blank" rel="noreferrer">Exportar métricas em JSON</a>
+                <a className="button button--ghost" href={buildObservabilityExportUrl('execution_action_logs', 'csv', 1000)} target="_blank" rel="noreferrer">Exportar logs de ações em CSV</a>
+                <a className="button button--ghost" href={buildObservabilityExportUrl('ai_decisions', 'csv', 1000)} target="_blank" rel="noreferrer">Exportar decisões em CSV</a>
               </div>
             )}
           >
@@ -1250,12 +1473,12 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 tone="neutral"
               />
               <StatCard
-                label="Ordens paper 24h"
+                label="Ordens simuladas em 24h"
                 value={formatNumber(observability?.current?.summary?.traffic24h?.paperOrders || 0, 0)}
                 tone="neutral"
               />
               <StatCard
-                label="Workers stale"
+                label="Workers desatualizados"
                 value={formatNumber(observability?.current?.summary?.workers?.stale || 0, 0)}
                 tone={(observability?.current?.summary?.workers?.stale || 0) > 0 ? 'danger' : 'positive'}
               />
@@ -1263,9 +1486,9 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
             <div className="list-stack">
               <div className="list-item list-item--column">
                 <div>
-                  <strong>Snapshot atual</strong>
+                  <strong>Instantâneo atual</strong>
                   <div className="muted">
-                    {formatDateTime(observability?.current?.createdAt)} • fonte: {observability?.current?.source || 'n/a'}
+                    {formatDateTime(observability?.current?.createdAt)} • fonte: {observability?.current?.source || 'não disponível'}
                   </div>
                 </div>
                 <div className="button-row">
@@ -1273,7 +1496,7 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                     alertas críticos: {formatNumber(observability?.current?.summary?.alerts?.critical || 0, 0)}
                   </Pill>
                   <Pill tone={observability?.current?.summary?.runtime?.maintenanceMode ? 'warning' : 'info'}>
-                    maintenance: {observability?.current?.summary?.runtime?.maintenanceMode ? 'on' : 'off'}
+                    manutenção: {observability?.current?.summary?.runtime?.maintenanceMode ? 'ligada' : 'desligada'}
                   </Pill>
                 </div>
               </div>
@@ -1285,8 +1508,8 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                     <div className="muted">Último heartbeat: {formatDateTime(item.lastSeenAt)} • idade: {formatNumber(item.ageSec || 0, 0)}s</div>
                   </div>
                   <div className="button-row">
-                    <Pill tone={item.stale ? 'high' : 'buy'}>{item.stale ? 'stale' : 'ok'}</Pill>
-                    <span className="muted">status: {item.status}</span>
+                    <Pill tone={item.stale ? 'high' : 'buy'}>{item.stale ? 'desatualizado' : 'ok'}</Pill>
+                    <span className="muted">status: {traduzirStatusGenerico(item.status)}</span>
                   </div>
                 </div>
               ))}
@@ -1294,7 +1517,7 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
               {(observability?.recentSnapshots || []).slice(0, 5).map((item) => (
                 <div key={item.id} className="list-item list-item--column">
                   <div>
-                    <strong>Snapshot #{item.id}</strong>
+                    <strong>Instantâneo #{item.id}</strong>
                     <div className="muted">
                       {formatDateTime(item.createdAt)} • eventos: {formatNumber(item.summary?.traffic24h?.systemEvents || 0, 0)} • decisões: {formatNumber(item.summary?.traffic24h?.aiDecisions || 0, 0)}
                     </div>
@@ -1309,23 +1532,23 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
 
 
 <Section
-  title="Readiness e jobs agendados"
-  subtitle="Checklist de prontidão para testnet supervisionada, jobs automáticos e alertas ativos do backend."
+  title="Prontidão e tarefas agendadas"
+  subtitle="Checklist de prontidão para testnet supervisionada, tarefas automáticas e alertas ativos do backend."
   actions={(
     <div className="button-row">
       <button
         className="button"
         disabled={opsActionLoading === 'readiness'}
-        onClick={() => handleOpsAction('readiness', () => runReadinessCheck({ requestedBy: 'dashboard' }), 'Checklist de readiness executado.')}
+        onClick={() => handleOpsAction('readiness', () => runReadinessCheck({ requestedBy: 'dashboard' }), 'Checklist de prontidão executado.')}
       >
-        {opsActionLoading === 'readiness' ? 'Executando...' : 'Rodar readiness'}
+        {opsActionLoading === 'readiness' ? 'Executando...' : 'Rodar prontidão'}
       </button>
       <button
         className="button button--ghost"
         disabled={opsActionLoading === 'alert-scan'}
         onClick={() => handleOpsAction('alert-scan', () => runScheduledJob('alert_scan', { requestedBy: 'dashboard' }), 'Alert scan executado.')}
       >
-        {opsActionLoading === 'alert-scan' ? 'Escaneando...' : 'Rodar alert scan'}
+        {opsActionLoading === 'alert-scan' ? 'Escaneando...' : 'Rodar varredura de alertas'}
       </button>
     </div>
   )}
@@ -1335,12 +1558,12 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
       <div>
         <strong>Checklist atual</strong>
         <div className="muted">
-          {latestReadiness?.createdAt ? `${formatDateTime(latestReadiness.createdAt)} • ${formatNumber(latestReadiness.summary?.counts?.pass || 0, 0)} pass / ${formatNumber(latestReadiness.summary?.counts?.warn || 0, 0)} warn / ${formatNumber(latestReadiness.summary?.counts?.fail || 0, 0)} fail` : 'Ainda não executado'}
+          {latestReadiness?.createdAt ? `${formatDateTime(latestReadiness.createdAt)} • ${formatNumber(latestReadiness.summary?.counts?.pass || 0, 0)} aprovados / ${formatNumber(latestReadiness.summary?.counts?.warn || 0, 0)} em atenção / ${formatNumber(latestReadiness.summary?.counts?.fail || 0, 0)} falhos` : 'Ainda não executado'}
         </div>
       </div>
       <div className="button-row">
         <Pill tone={latestReadiness?.status === 'ready' ? 'buy' : latestReadiness?.status === 'warning' ? 'warning' : 'high'}>
-          {latestReadiness?.status || 'sem relatório'}
+          {traduzirStatusGenerico(latestReadiness?.status) || 'sem relatório'}
         </Pill>
       </div>
     </div>
@@ -1352,7 +1575,7 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
           <div className="muted">{item.message}</div>
         </div>
         <div className="button-row">
-          <Pill tone={item.status === 'pass' ? 'buy' : item.status === 'warn' ? 'warning' : 'high'}>{item.status}</Pill>
+          <Pill tone={item.status === 'pass' ? 'buy' : item.status === 'warn' ? 'warning' : 'high'}>{traduzirStatusGenerico(item.status)}</Pill>
           {item.critical ? <Pill tone="info">crítico</Pill> : null}
         </div>
       </div>
@@ -1361,11 +1584,11 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
     {(recentJobRuns || []).slice(0, 5).map((item) => (
       <div key={item.id} className="list-item list-item--column">
         <div>
-          <strong>{item.jobKey}</strong>
+          <strong>{traduzirChaveJob(item.jobKey)}</strong>
           <div className="muted">{formatDateTime(item.startedAt)} • origem: {item.triggerSource} • solicitado por: {item.requestedBy}</div>
         </div>
         <div className="button-row">
-          <Pill tone={item.status === 'ok' ? 'buy' : item.status === 'error' ? 'high' : 'warning'}>{item.status}</Pill>
+          <Pill tone={item.status === 'ok' ? 'buy' : item.status === 'error' ? 'high' : 'warning'}>{traduzirStatusGenerico(item.status)}</Pill>
         </div>
       </div>
     ))}
@@ -1375,11 +1598,11 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
         <div>
           <strong>{item.title}</strong>
           <div className="muted">{item.message}</div>
-          <div className="muted">{item.source} • última atualização {formatDateTime(item.updatedAt)}</div>
+          <div className="muted">{traduzirFonte(item.source)} • última atualização {formatDateTime(item.updatedAt)}</div>
         </div>
         <div className="button-row">
-          <Pill tone={item.severity === 'critical' || item.severity === 'high' ? 'high' : 'warning'}>{item.severity}</Pill>
-          <Pill tone={item.status === 'acknowledged' ? 'info' : item.status === 'resolved' ? 'buy' : 'warning'}>{item.status}</Pill>
+          <Pill tone={item.severity === 'critical' || item.severity === 'high' ? 'high' : 'warning'}>{traduzirSeveridade(item.severity)}</Pill>
+          <Pill tone={item.status === 'acknowledged' ? 'info' : item.status === 'resolved' ? 'buy' : 'warning'}>{traduzirStatusGenerico(item.status)}</Pill>
           <button className="button button--ghost" disabled={opsActionLoading === `ack-${item.alertKey}`} onClick={() => handleOpsAction(`ack-${item.alertKey}`, () => acknowledgeAlert(item.alertKey, { actor: 'dashboard' }), 'Alerta reconhecido.')}>Reconhecer</button>
           <button className="button button--ghost" disabled={opsActionLoading === `resolve-${item.alertKey}`} onClick={() => handleOpsAction(`resolve-${item.alertKey}`, () => resolveAlert(item.alertKey, { actor: 'dashboard' }), 'Alerta resolvido.')}>Resolver</button>
         </div>
@@ -1400,8 +1623,8 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 </ConfigField>
                 <ConfigField label="Modo de execução">
                   <select value={draftConfig.trading.mode} onChange={(event) => handleTextChange('trading.mode', event.target.value)}>
-                    <option value="paper">paper</option>
-                    <option value="live">live</option>
+                    <option value="paper">simulado</option>
+                    <option value="live">real</option>
                   </select>
                 </ConfigField>
                 <ConfigField label="Moeda base">
@@ -1420,31 +1643,31 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 <ConfigField label="Timeframes de confirmação" hint="Separados por vírgula.">
                   <input value={formatList(draftConfig.trading.confirmationTimeframes)} onChange={(event) => handleTimeframesChange(event.target.value)} />
                 </ConfigField>
-                <ConfigField label="Lookback candles">
+                <ConfigField label="Candles de lookback">
                   <input type="number" value={draftConfig.trading.lookbackCandles} onChange={(event) => handleNumberChange('trading.lookbackCandles', event.target.value)} />
                 </ConfigField>
                 <ConfigField label="Máx. posições abertas">
                   <input type="number" value={draftConfig.trading.maxOpenPositions} onChange={(event) => handleNumberChange('trading.maxOpenPositions', event.target.value)} />
                 </ConfigField>
-                <ConfigField label="Capital paper inicial">
+                <ConfigField label="Capital inicial simulado">
                   <input type="number" value={draftConfig.execution.paper.initialCapital} onChange={(event) => handleNumberChange('execution.paper.initialCapital', event.target.value)} />
                 </ConfigField>
                 <ConfigField label="Tamanho da ordem (%)">
                   <input type="number" step="0.1" value={draftConfig.execution.paper.orderSizePct} onChange={(event) => handleNumberChange('execution.paper.orderSizePct', event.target.value)} />
                 </ConfigField>
-                <ConfigField label="Fee (%)">
+                <ConfigField label="Taxa (%)">
                   <input type="number" step="0.01" value={draftConfig.execution.paper.feePct} onChange={(event) => handleNumberChange('execution.paper.feePct', event.target.value)} />
                 </ConfigField>
                 <ConfigField label="Slippage (%)">
                   <input type="number" step="0.01" value={draftConfig.execution.paper.slippagePct} onChange={(event) => handleNumberChange('execution.paper.slippagePct', event.target.value)} />
                 </ConfigField>
-                <ConfigField label="Stop loss ATR">
+                <ConfigField label="Stop loss em ATR">
                   <input type="number" step="0.1" value={draftConfig.risk.stopLossAtr} onChange={(event) => handleNumberChange('risk.stopLossAtr', event.target.value)} />
                 </ConfigField>
-                <ConfigField label="Take profit ATR">
+                <ConfigField label="Take profit em ATR">
                   <input type="number" step="0.1" value={draftConfig.risk.takeProfitAtr} onChange={(event) => handleNumberChange('risk.takeProfitAtr', event.target.value)} />
                 </ConfigField>
-                <ConfigField label="Trailing stop ATR">
+                <ConfigField label="Trailing stop em ATR">
                   <input type="number" step="0.1" value={draftConfig.risk.trailingStopAtr} onChange={(event) => handleNumberChange('risk.trailingStopAtr', event.target.value)} />
                 </ConfigField>
                 <ConfigField label="Cooldown após perda (min)">
@@ -1459,10 +1682,10 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 <ConfigField label="Perda diária máxima (%)">
                   <input type="number" step="0.1" value={draftConfig.risk.dailyMaxLossPct} onChange={(event) => handleNumberChange('risk.dailyMaxLossPct', event.target.value)} />
                 </ConfigField>
-                <ConfigField label="Confiança mínima BUY">
+                <ConfigField label="Confiança mínima para compra">
                   <input type="number" step="0.01" value={draftConfig.ai.minConfidenceToBuy} onChange={(event) => handleNumberChange('ai.minConfidenceToBuy', event.target.value)} />
                 </ConfigField>
-                <ConfigField label="Confiança mínima SELL">
+                <ConfigField label="Confiança mínima para venda">
                   <input type="number" step="0.01" value={draftConfig.ai.minConfidenceToSell} onChange={(event) => handleNumberChange('ai.minConfidenceToSell', event.target.value)} />
                 </ConfigField>
                 <ConfigField label="Margem de decisão">
@@ -1503,19 +1726,19 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
             {comparisonResult ? (
               <div className="metric-grid">
                 <div className="list-item list-item--column">
-                  <strong>Baseline #{comparisonResult.baseline.id}</strong>
+                  <strong>Base #{comparisonResult.baseline.id}</strong>
                   <div className="muted">Retorno {formatPercent(comparisonResult.baseline.metrics.totalReturnPct || 0)}</div>
                   <div className="muted">Drawdown {formatPercent(comparisonResult.baseline.metrics.maxDrawdownPct || 0)}</div>
                 </div>
                 <div className="list-item list-item--column">
-                  <strong>Challenger #{comparisonResult.challenger.id}</strong>
+                  <strong>Desafiante #{comparisonResult.challenger.id}</strong>
                   <div className="muted">Retorno {formatPercent(comparisonResult.challenger.metrics.totalReturnPct || 0)}</div>
                   <div className="muted">Drawdown {formatPercent(comparisonResult.challenger.metrics.maxDrawdownPct || 0)}</div>
                 </div>
                 <div className="list-item list-item--column">
                   <strong>Delta</strong>
                   <div className={Number(comparisonResult.delta.totalReturnPct || 0) >= 0 ? 'text-positive' : 'text-danger'}>Retorno {formatPercent(comparisonResult.delta.totalReturnPct || 0)}</div>
-                  <div className={Number(comparisonResult.delta.outperformancePct || 0) >= 0 ? 'text-positive' : 'text-danger'}>Outperformance {formatPercent(comparisonResult.delta.outperformancePct || 0)}</div>
+                  <div className={Number(comparisonResult.delta.outperformancePct || 0) >= 0 ? 'text-positive' : 'text-danger'}>Superação relativa {formatPercent(comparisonResult.delta.outperformancePct || 0)}</div>
                 </div>
               </div>
             ) : null}
@@ -1524,13 +1747,13 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
               <table>
                 <thead>
                   <tr>
-                    <th>Run</th>
-                    <th>Symbol</th>
+                    <th>Execução</th>
+                    <th>Símbolo</th>
                     <th>Intervalo</th>
                     <th>Retorno</th>
                     <th>Drawdown</th>
-                    <th>Win rate</th>
-                    <th>Trades</th>
+                    <th>Taxa de acerto</th>
+                    <th>Operações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1552,17 +1775,17 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
             </div>
           </Section>
 
-          <Section title="Portfólio paper" subtitle={`Base ${baseCurrency} • ${portfolio.openPositionsCount || 0} posições abertas`}>
+          <Section title="Portfólio simulado" subtitle={`Base ${baseCurrency} • ${portfolio.openPositionsCount || 0} posições abertas`}>
             <div className="table-wrap compact-scroll">
               <table>
                 <thead>
                   <tr>
-                    <th>Symbol</th>
+                    <th>Símbolo</th>
                     <th>Qtd</th>
                     <th>Entrada</th>
                     <th>Preço atual</th>
-                    <th>Unrealized</th>
-                    <th>Stops</th>
+                    <th>Não realizado</th>
+                    <th>Saídas</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1595,8 +1818,8 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 <thead>
                   <tr>
                     <th>Quando</th>
-                    <th>Symbol</th>
-                    <th>Lado</th>
+                    <th>Símbolo</th>
+                    <th>Direção</th>
                     <th>Status</th>
                     <th>Preço</th>
                     <th>PnL</th>
@@ -1608,8 +1831,8 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                     <tr key={order.id}>
                       <td>{formatDateTime(order.createdAt)}</td>
                       <td>{order.symbol}</td>
-                      <td>{order.side}</td>
-                      <td>{order.status}</td>
+                      <td>{traduzirAcaoDecisao(order.side)}</td>
+                      <td>{traduzirStatusGenerico(order.status)}</td>
                       <td>{formatMoney(order.price, baseCurrency)}</td>
                       <td className={Number(order.realizedPnl || 0) >= 0 ? 'text-positive' : 'text-danger'}>{formatMoney(order.realizedPnl || 0, baseCurrency)}</td>
                       <td className="muted">{order.rejectionReason || order.reason || '—'}</td>
@@ -1626,13 +1849,13 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
         </div>
 
         <aside className="layout-grid__side">
-          <Section title="Cooldowns por moeda" subtitle="Entradas BUY ficam bloqueadas enquanto o cooldown estiver ativo.">
+          <Section title="Cooldowns por moeda" subtitle="Entradas de compra ficam bloqueadas enquanto o cooldown estiver ativo.">
             <div className="list-stack compact-scroll">
               {controlState?.activeCooldowns?.length ? controlState.activeCooldowns.map((item) => (
                 <div key={item.symbol} className="list-item list-item--column">
                   <div className="decision-card__row">
                     <strong>{item.symbol}</strong>
-                    <Pill tone="warning">{item.cooldownType}</Pill>
+                    <Pill tone="warning">{String(item.cooldownType || '').replaceAll('_', ' ').replace('after', 'após').replace('loss', 'perda').replace('stop', 'stop')}</Pill>
                   </div>
                   <div className="muted">{item.reason}</div>
                   <div className="muted">Até {formatDateTime(item.activeUntil)}</div>
@@ -1642,16 +1865,16 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
             </div>
           </Section>
 
-          <Section title="Decisões da AI" subtitle="Últimos sinais emitidos pelo meta-decisor.">
+          <Section title="Decisões da IA" subtitle="Últimos sinais emitidos pelo meta-decisor.">
             <div className="list-stack compact-scroll">
               {currentDecisions?.length ? currentDecisions.map((decision) => (
                 <div key={decision.id} className="decision-card">
                   <div className="decision-card__row">
                     <strong>{decision.symbol}</strong>
-                    <Pill tone={decision.action === 'BUY' ? 'buy' : decision.action === 'SELL' ? 'sell' : decision.action === 'BLOCK' ? 'info' : 'warning'}>{decision.action}</Pill>
+                    <Pill tone={decision.action === 'BUY' ? 'buy' : decision.action === 'SELL' ? 'sell' : decision.action === 'BLOCK' ? 'info' : 'warning'}>{traduzirAcaoDecisao(decision.action)}</Pill>
                   </div>
                   <div className="muted">Confiança {formatPercent((decision.confidence || 0) * 100)}</div>
-                  <div className="muted">{decision.reason || 'sem razão'}</div>
+                  <div className="muted">{decision.reason || 'sem motivo informado'}</div>
                   <div className="muted">{formatDateTime(decision.created_at || decision.createdAt)}</div>
                 </div>
               )) : <div className="muted">Nenhuma decisão recente.</div>}
@@ -1664,63 +1887,63 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 <div key={item.symbol} className="list-item list-item--column">
                   <div className="decision-card__row">
                     <strong>{item.symbol}</strong>
-                    <Pill tone={item.classification === 'FORTE' ? 'buy' : item.classification === 'ALTO_RISCO' ? 'high' : 'info'}>{item.classification}</Pill>
+                    <Pill tone={item.classification === 'FORTE' ? 'buy' : item.classification === 'ALTO_RISCO' ? 'high' : 'info'}>{traduzirClassificacaoSocial(item.classification)}</Pill>
                   </div>
-                  <div className="muted">Score {formatNumber(item.socialScore, 1)} • Risco {formatNumber(item.socialRisk, 1)}</div>
+                  <div className="muted">Pontuação {formatNumber(item.socialScore, 1)} • Risco {formatNumber(item.socialRisk, 1)}</div>
                   <div className="muted">Fontes: {formatList(item.sources)}</div>
                 </div>
               )) : <div className="muted">Sem scores sociais.</div>}
             </div>
           </Section>
 
-          <Section title="Providers sociais" subtitle="CoinGecko Demo continua opcional e com fallback de cache local.">
+          <Section title="Provedores sociais" subtitle="CoinGecko Demo continua opcional e com fallback de cache local.">
             <div className="list-stack compact-scroll">
               {providerStatuses.length ? providerStatuses.map((provider) => (
                 <div key={provider.providerKey} className="list-item list-item--column">
                   <div className="decision-card__row">
                     <strong>{provider.providerName}</strong>
-                    <Pill tone={provider.status === 'ok' ? 'buy' : provider.status === 'backoff' ? 'warning' : 'high'}>{provider.status}</Pill>
+                    <Pill tone={provider.status === 'ok' ? 'buy' : provider.status === 'backoff' ? 'warning' : 'high'}>{traduzirStatusGenerico(provider.status)}</Pill>
                   </div>
-                  <div className="muted">Modo {provider.mode} • Retry {formatDateTime(provider.retryAfterAt)}</div>
+                  <div className="muted">Modo {provider.mode} • Nova tentativa em {formatDateTime(provider.retryAfterAt)}</div>
                 </div>
               )) : <div className="muted">Sem providers registrados.</div>}
-              <div className="muted">{socialSummary?.attribution?.coingecko || 'Data provided by CoinGecko Demo API when available.'}</div>
+              <div className="muted">{socialSummary?.attribution?.coingecko || 'Dados fornecidos pela CoinGecko Demo API quando disponíveis.'}</div>
             </div>
           </Section>
 
 
-<Section title="Calibrações recentes" subtitle="Runs automáticos com ranking por símbolo e regime.">
+<Section title="Calibrações recentes" subtitle="Execuções automáticas com ranking por símbolo e regime.">
   <div className="list-stack compact-scroll">
     {recentOptimizations?.length ? recentOptimizations.map((item) => (
       <div key={item.id} className="list-item list-item--column">
         <div className="decision-card__row">
           <strong>{item.label}</strong>
-          <Pill tone="info">{item.objective}</Pill>
+          <Pill tone="info">{traduzirObjetivo(item.objective)}</Pill>
         </div>
         <div className="muted">{formatDateTime(item.createdAt)}</div>
         <div className="muted">Melhor score médio: {formatNumber(item.summary?.averageScore || 0, 2)}</div>
-        <div className="muted">Top: {item.summary?.bestOverall?.symbol || '—'} / {item.summary?.bestOverall?.candidateName || '—'}</div>
+        <div className="muted">Topo: {item.summary?.bestOverall?.symbol || '—'} / {item.summary?.bestOverall?.candidateName || '—'}</div>
         <div className="button-row">
           <button
             className="button button--ghost"
             disabled={promotionLoading === `simulate-paper_active-${item.id}`}
             onClick={() => handleSimulatePromotion(item.id, 'paper_active')}
           >
-            {promotionLoading === `simulate-paper_active-${item.id}` ? 'Simulando...' : 'Simular paper'}
+            {promotionLoading === `simulate-paper_active-${item.id}` ? 'Simulando...' : 'Simular promoção para o modo simulado'}
           </button>
           <button
             className="button"
             disabled={promotionLoading === `request-paper_active-${item.id}`}
             onClick={() => handleRequestPromotion(item.id, 'paper_active')}
           >
-            {promotionLoading === `request-paper_active-${item.id}` ? 'Solicitando...' : 'Solicitar aprovação paper'}
+            {promotionLoading === `request-paper_active-${item.id}` ? 'Solicitando...' : 'Solicitar aprovação para simulado'}
           </button>
           <button
             className="button button--ghost"
             disabled={promotionLoading === `request-live_candidate-${item.id}`}
             onClick={() => handleRequestPromotion(item.id, 'live_candidate')}
           >
-            {promotionLoading === `request-live_candidate-${item.id}` ? 'Solicitando...' : 'Solicitar live review'}
+            {promotionLoading === `request-live_candidate-${item.id}` ? 'Solicitando...' : 'Solicitar revisão para o modo real'}
           </button>
         </div>
       </div>
@@ -1734,18 +1957,18 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 <div className="list-item list-item--column">
                   <div className="decision-card__row">
                     <strong>{promotionSimulation.summary?.candidateName || promotionSimulation.winner?.candidateName || 'simulação'}</strong>
-                    <Pill tone="info">{promotionSimulation.targetChannel || promotionSimulation.simulation?.targetChannel || 'paper_active'}</Pill>
+                    <Pill tone="info">{traduzirCanalPromocao(promotionSimulation.targetChannel || promotionSimulation.simulation?.targetChannel || 'paper_active')}</Pill>
                   </div>
                   <div className="muted">Símbolo {promotionSimulation.summary?.symbol || promotionSimulation.winner?.symbol || '—'} • score {formatNumber(promotionSimulation.summary?.score || promotionSimulation.winner?.score || 0, 2)}</div>
                   <div className="muted">Versão atual {promotionSimulation.currentVersion || promotionSimulation.simulation?.currentVersion || 0}</div>
-                  <div className="muted">Mudanças: {(promotionSimulation.simulation?.changedPaths || []).slice(0, 5).map((item) => item.path).join(', ') || 'sem mudanças mapeadas'}</div>
+                  <div className="muted">Alterações: {(promotionSimulation.simulation?.changedPaths || []).slice(0, 5).map((item) => item.path).join(', ') || 'sem mudanças mapeadas'}</div>
                   <div className="button-row">
                     {promotionSimulation.simulation?.warnings?.length ? promotionSimulation.simulation.warnings.map((warning) => (
                       <Pill key={warning} tone="warning">{warning}</Pill>
                     )) : <Pill tone="buy">sem alertas críticos</Pill>}
                   </div>
                 </div>
-              ) : <div className="muted">Use “Simular paper” em uma calibração para ver a prévia.</div>}
+              ) : <div className="muted">Use “Simular promoção para o modo simulado” em uma calibração para ver a prévia.</div>}
             </div>
           </Section>
 
@@ -1754,11 +1977,11 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
               {recentApprovalRequests?.length ? recentApprovalRequests.map((item) => (
                 <div key={item.id} className="list-item list-item--column">
                   <div className="decision-card__row">
-                    <strong>Request #{item.id}</strong>
-                    <Pill tone={item.status === 'pending' ? 'warning' : item.status?.includes('approved') ? 'buy' : item.status === 'rejected' ? 'high' : 'info'}>{item.status}</Pill>
+                    <strong>Solicitação #{item.id}</strong>
+                    <Pill tone={item.status === 'pending' ? 'warning' : item.status?.includes('approved') ? 'buy' : item.status === 'rejected' ? 'high' : 'info'}>{traduzirStatusGenerico(item.status)}</Pill>
                   </div>
-                  <div className="muted">{item.summary?.candidateName || 'candidate'} • {item.summary?.symbol || '—'} • {item.targetChannel}</div>
-                  <div className="muted">Requester {item.requestedBy || '—'} • {formatDateTime(item.createdAt)}</div>
+                  <div className="muted">{item.summary?.candidateName || 'candidato'} • {item.summary?.symbol || '—'} • {traduzirCanalPromocao(item.targetChannel)}</div>
+                  <div className="muted">Solicitante {item.requestedBy || '—'} • {formatDateTime(item.createdAt)}</div>
                   <div className="button-row">
                     {item.status === 'pending' ? (
                       <>
@@ -1778,16 +2001,16 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
             </div>
           </Section>
 
-          <Section title="Promoções recentes" subtitle="Aplicações em paper e candidatas para revisão live, sempre com segurança.">
+          <Section title="Promoções recentes" subtitle="Aplicações no modo simulado e candidaturas para revisão do modo real, sempre com segurança.">
             <div className="list-stack compact-scroll">
               {recentPromotions?.length ? recentPromotions.map((item) => (
                 <div key={item.id} className="list-item list-item--column">
                   <div className="decision-card__row">
-                    <strong>{item.summary?.candidateName || 'winner'}</strong>
-                    <Pill tone={item.status === 'applied' || item.status === 'rollback_applied' ? 'buy' : 'warning'}>{item.targetChannel}</Pill>
+                    <strong>{item.summary?.candidateName || 'vencedor'}</strong>
+                    <Pill tone={item.status === 'applied' || item.status === 'rollback_applied' ? 'buy' : 'warning'}>{traduzirCanalPromocao(item.targetChannel)}</Pill>
                   </div>
-                  <div className="muted">{item.summary?.symbol || '—'} • {item.summary?.regimeLabel || 'mixed'}</div>
-                  <div className="muted">Status {item.status} • versão {item.appliedVersion || 'não aplicada'}</div>
+                  <div className="muted">{item.summary?.symbol || '—'} • {traduzirRegime(item.summary?.regimeLabel || 'mixed')}</div>
+                  <div className="muted">Status {traduzirStatusGenerico(item.status)} • versão {item.appliedVersion || 'não aplicada'}</div>
                   <div className="muted">{formatDateTime(item.createdAt)}</div>
                 </div>
               )) : <div className="muted">Sem promoções recentes.</div>}
@@ -1799,7 +2022,7 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
               {configAudit?.length ? configAudit.map((item) => (
                 <div key={item.id} className="list-item list-item--column">
                   <div className="decision-card__row">
-                    <strong>{item.actionType}</strong>
+                    <strong>{traduzirTipoAcaoExecucao(item.actionType)}</strong>
                     <Pill tone="info">{item.actor}</Pill>
                   </div>
                   <div className="muted">Versão {item.fromVersion || '—'} → {item.toVersion || '—'}</div>
@@ -1828,35 +2051,35 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
 
 
 
-          <Section title="Policy gates e maintenance" subtitle="Promoções e readiness agora respeitam gates mais fortes antes de paper/live review.">
+          <Section title="Regras de liberação e manutenção" subtitle="Promoções e prontidão agora respeitam gates mais fortes antes da revisão de simulado/modo real.">
             <div className="list-stack compact-scroll">
               <div className="list-item list-item--column">
                 <div className="decision-card__row">
-                  <strong>Maintenance mode</strong>
+                  <strong>Modo de manutenção</strong>
                   <Pill tone={controlState?.maintenanceMode ? 'warning' : 'buy'}>{controlState?.maintenanceMode ? 'ativo' : 'desligado'}</Pill>
                 </div>
-                <div className="muted">{controlState?.maintenanceReason || 'Sem maintenance mode ativo.'}</div>
+                <div className="muted">{controlState?.maintenanceReason || 'Sem modo de manutenção ativo.'}</div>
               </div>
               {policyReports?.length ? policyReports.map((item) => (
                 <div key={item.id} className="list-item list-item--column">
                   <div className="decision-card__row">
-                    <strong>{item.gateType}</strong>
-                    <Pill tone={item.status === 'pass' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{item.status}</Pill>
+                    <strong>{traduzirGate(item.gateType)}</strong>
+                    <Pill tone={item.status === 'pass' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{traduzirStatusGenerico(item.status)}</Pill>
                   </div>
-                  <div className="muted">Canal: {item.targetChannel || '—'} • {formatDateTime(item.createdAt)}</div>
-                  <div className="muted">Checks: {formatNumber(item.summary?.checks?.length || 0, 0)} • Readiness: {item.summary?.readinessStatus || '—'}</div>
+                  <div className="muted">Canal: {traduzirCanalPromocao(item.targetChannel) || '—'} • {formatDateTime(item.createdAt)}</div>
+                  <div className="muted">Checks: {formatNumber(item.summary?.checks?.length || 0, 0)} • Prontidão: {traduzirStatusGenerico(item.summary?.readinessStatus) || '—'}</div>
                 </div>
               )) : <div className="muted">Sem policy gates recentes.</div>}
             </div>
           </Section>
 
-          <Section title="Alertas externos" subtitle="Webhook, Telegram e email-ready ficam prontos para integração e teste manual.">
+          <Section title="Alertas externos" subtitle="Webhook, Telegram e e-mail preparado ficam prontos para integração e teste manual.">
             <div className="list-stack compact-scroll">
               {(notifications.channels || []).length ? notifications.channels.map((channel) => (
                 <div key={channel.key} className="list-item list-item--column">
                   <div className="decision-card__row">
-                    <strong>{channel.key}</strong>
-                    <Pill tone={channel.ready ? 'buy' : channel.configured ? 'warning' : 'info'}>{channel.ready ? 'ready' : channel.configured ? 'parcial' : 'desligado'}</Pill>
+                    <strong>{traduzirCanalNotificacao(channel.key)}</strong>
+                    <Pill tone={channel.ready ? 'buy' : channel.configured ? 'warning' : 'info'}>{channel.ready ? 'pronto' : channel.configured ? 'parcial' : 'desligado'}</Pill>
                   </div>
                   <div className="muted">Destino: {channel.destination || 'não configurado'}</div>
                   <div className="button-row">
@@ -1867,22 +2090,22 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
               {(notifications.recentDeliveries || []).length ? notifications.recentDeliveries.slice(0, 5).map((item) => (
                 <div key={item.id} className="list-item list-item--column">
                   <div className="decision-card__row">
-                    <strong>{item.channel}</strong>
-                    <Pill tone={item.status === 'sent' ? 'buy' : item.status === 'prepared' ? 'warning' : 'high'}>{item.status}</Pill>
+                    <strong>{traduzirCanalNotificacao(item.channel)}</strong>
+                    <Pill tone={item.status === 'sent' ? 'buy' : item.status === 'prepared' ? 'warning' : 'high'}>{traduzirStatusGenerico(item.status)}</Pill>
                   </div>
-                  <div className="muted">{item.eventType} • {formatDateTime(item.createdAt)}</div>
+                  <div className="muted">{String(item.eventType || '').replaceAll('_', ' ')} • {formatDateTime(item.createdAt)}</div>
                 </div>
               )) : null}
             </div>
           </Section>
 
-          <Section title="Runbooks e incidentes" subtitle="Playbooks operacionais para simular incidentes e executar recuperação guiada sem mexer direto nos workers.">
+          <Section title="Runbooks e incidentes" subtitle="Guias operacionais para simular incidentes e executar recuperação guiada sem mexer direto nos workers.">
             <div className="list-stack compact-scroll">
               {runbooks?.length ? runbooks.map((item) => (
                 <div key={item.runbookKey} className="list-item list-item--column">
                   <div className="decision-card__row">
                     <strong>{item.title}</strong>
-                    <Pill tone={item.severity === 'critical' ? 'high' : item.severity === 'high' ? 'warning' : 'info'}>{item.severity}</Pill>
+                    <Pill tone={item.severity === 'critical' ? 'high' : item.severity === 'high' ? 'warning' : 'info'}>{traduzirSeveridade(item.severity)}</Pill>
                   </div>
                   <div className="muted">{item.description}</div>
                   <div className="muted">Sinais: {formatList(item.detectionSignals || []).slice(0, 180) || '—'}</div>
@@ -1921,13 +2144,13 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
             </div>
           </Section>
 
-          <Section title="Treinamento assistido e qualidade do modelo" subtitle="Avaliação contínua dos experts, sugestão de novos pesos e detecção de drift antes de ajustar a AI.">
+          <Section title="Treinamento assistido e qualidade do modelo" subtitle="Avaliação contínua dos especialistas, sugestão de novos pesos e detecção de drift antes de ajustar a IA.">
             <div className="grid two-columns">
               <div className="list-stack">
-                <ConfigField label="Label do run" hint="Ajuda a identificar o motivo desta avaliação.">
+                <ConfigField label="Rótulo da execução" hint="Ajuda a identificar o motivo desta avaliação.">
                   <input value={trainingForm.label} onChange={(event) => setTrainingForm((current) => ({ ...current, label: event.target.value }))} />
                 </ConfigField>
-                <ConfigField label="Janela de avaliação (dias)" hint="Usa decisões e ordens paper recentes para medir qualidade e drift.">
+                <ConfigField label="Janela de avaliação (dias)" hint="Usa decisões e ordens simuladas recentes para medir qualidade e drift.">
                   <input type="number" min="1" max="90" value={trainingForm.windowDays} onChange={(event) => setTrainingForm((current) => ({ ...current, windowDays: parseNumberInput(event.target.value, 14) }))} />
                 </ConfigField>
                 <ConfigField label="Escopo de símbolos" hint="Opcional. Deixe vazio para usar a watchlist ativa.">
@@ -1948,17 +2171,17 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 <div className="list-item list-item--column">
                   <div className="decision-card__row">
                     <strong>Qualidade atual</strong>
-                    <Pill tone={trainingSummary?.qualitySummary?.qualityStatus === 'healthy' ? 'buy' : trainingSummary?.qualitySummary?.qualityStatus === 'warning' ? 'warning' : 'high'}>{trainingSummary?.qualitySummary?.qualityStatus || '—'}</Pill>
+                    <Pill tone={trainingSummary?.qualitySummary?.qualityStatus === 'healthy' ? 'buy' : trainingSummary?.qualitySummary?.qualityStatus === 'warning' ? 'warning' : 'high'}>{traduzirQualidade(trainingSummary?.qualitySummary?.qualityStatus) || '—'}</Pill>
                   </div>
-                  <div className="muted">Win rate: {formatPercent(trainingSummary?.qualitySummary?.winRate || 0)}</div>
-                  <div className="muted">Profit factor: {formatNumber(trainingSummary?.qualitySummary?.profitFactor || 0, 2)} • Confiança média: {formatPercent(trainingSummary?.qualitySummary?.avgConfidence || 0)}</div>
+                  <div className="muted">Taxa de acerto: {formatPercent(trainingSummary?.qualitySummary?.winRate || 0)}</div>
+                  <div className="muted">Fator de lucro: {formatNumber(trainingSummary?.qualitySummary?.profitFactor || 0, 2)} • Confiança média: {formatPercent(trainingSummary?.qualitySummary?.avgConfidence || 0)}</div>
                   <div className="muted">PnL total: {formatMoney(trainingSummary?.qualitySummary?.totalPnl || 0, draftConfig?.trading?.baseCurrency || 'USDT')}</div>
                 </div>
 
                 <div className="list-item list-item--column">
                   <div className="decision-card__row">
                     <strong>Drift de mercado</strong>
-                    <Pill tone={trainingSummary?.driftSummary?.driftLevel === 'low' ? 'buy' : trainingSummary?.driftSummary?.driftLevel === 'moderate' ? 'warning' : 'high'}>{trainingSummary?.driftSummary?.driftLevel || '—'}</Pill>
+                    <Pill tone={trainingSummary?.driftSummary?.driftLevel === 'low' ? 'buy' : trainingSummary?.driftSummary?.driftLevel === 'moderate' ? 'warning' : 'high'}>{traduzirNivelDrift(trainingSummary?.driftSummary?.driftLevel) || '—'}</Pill>
                   </div>
                   <div className="muted">Score: {formatNumber(trainingSummary?.driftSummary?.driftScore || 0, 3)}</div>
                   <div className="muted">Símbolos: {formatList(trainingSummary?.symbols || [])}</div>
@@ -1968,14 +2191,14 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
 
             <div className="grid two-columns">
               <div className="list-stack compact-scroll">
-                <strong>Experts mais fortes</strong>
+                <strong>Especialistas mais fortes</strong>
                 {trainingSummary?.expertEvaluations?.length ? trainingSummary.expertEvaluations.slice(0, 7).map((item) => (
                   <div key={item.expert} className="list-item list-item--column">
                     <div className="decision-card__row">
-                      <strong>{item.expert}</strong>
-                      <Pill tone={item.qualityLabel === 'healthy' ? 'buy' : item.qualityLabel === 'warning' ? 'warning' : 'high'}>{item.qualityLabel}</Pill>
+                      <strong>{traduzirEspecialista(item.expert)}</strong>
+                      <Pill tone={item.qualityLabel === 'healthy' ? 'buy' : item.qualityLabel === 'warning' ? 'warning' : 'high'}>{traduzirQualidade(item.qualityLabel)}</Pill>
                     </div>
-                    <div className="muted">Amostras: {formatNumber(item.samples || 0, 0)} • Hit rate: {formatPercent(item.hitRate || 0)}</div>
+                    <div className="muted">Amostras: {formatNumber(item.samples || 0, 0)} • Taxa de acerto: {formatPercent(item.hitRate || 0)}</div>
                     <div className="muted">Peso atual: {formatNumber(item.currentWeight || 0, 4)} • sugerido: {formatNumber(trainingSummary?.suggestedWeights?.[item.expert] || 0, 4)}</div>
                     <div className="muted">Contribuição: {formatNumber(item.contributionScore || 0, 3)} • confiança média: {formatPercent(item.avgConfidence || 0)}</div>
                   </div>
@@ -1983,7 +2206,7 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
               </div>
 
               <div className="list-stack compact-scroll">
-                <strong>Runs recentes</strong>
+                <strong>Execuções recentes</strong>
                 {recentTrainingRuns?.length ? recentTrainingRuns.slice(0, 5).map((item) => (
                   <div key={item.id} className="list-item list-item--column">
                     <div className="decision-card__row">
@@ -1997,10 +2220,10 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
 
                 <strong>Relatórios recentes</strong>
                 {recentTrainingQualityReports?.slice(0, 3).map((item) => (
-                  <div key={`quality-${item.id}`} className="muted">Qualidade #{item.id}: {item.qualityStatus} • {formatDateTime(item.createdAt)}</div>
+                  <div key={`quality-${item.id}`} className="muted">Qualidade #{item.id}: {traduzirQualidade(item.qualityStatus)} • {formatDateTime(item.createdAt)}</div>
                 ))}
                 {recentTrainingDriftReports?.slice(0, 3).map((item) => (
-                  <div key={`drift-${item.id}`} className="muted">Drift #{item.id}: {item.driftLevel} • {formatDateTime(item.createdAt)}</div>
+                  <div key={`drift-${item.id}`} className="muted">Drift #{item.id}: {traduzirNivelDrift(item.driftLevel)} • {formatDateTime(item.createdAt)}</div>
                 ))}
                 {recentTrainingExpertReports?.slice(0, 2).map((item) => (
                   <div key={`expert-${item.id}`} className="muted">Experts #{item.id}: janela {item.windowDays}d • {formatDateTime(item.createdAt)}</div>
@@ -2015,7 +2238,7 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 <div key={alert.id} className="alert-card">
                   <div className="decision-card__row">
                     <strong>{alert.symbol}</strong>
-                    <Pill tone={String(alert.severity).toLowerCase() === 'high' ? 'high' : 'warning'}>{alert.severity}</Pill>
+                    <Pill tone={String(alert.severity).toLowerCase() === 'high' ? 'high' : 'warning'}>{traduzirSeveridade(alert.severity)}</Pill>
                   </div>
                   <div className="muted">{alert.message}</div>
                 </div>
