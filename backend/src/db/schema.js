@@ -178,6 +178,44 @@ async function initializeDatabase() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS promotion_approval_requests (
+      id BIGSERIAL PRIMARY KEY,
+      request_type TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_run_id BIGINT,
+      source_result_rank INTEGER NOT NULL DEFAULT 1,
+      target_channel TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      requested_by TEXT NOT NULL DEFAULT 'dashboard',
+      approved_by TEXT,
+      rejected_by TEXT,
+      reason TEXT,
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      config_override JSONB NOT NULL DEFAULT '{}'::jsonb,
+      promoted_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      simulation JSONB NOT NULL DEFAULT '{}'::jsonb,
+      approval_note TEXT,
+      rejection_note TEXT,
+      applied_promotion_id BIGINT,
+      applied_version INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      approved_at TIMESTAMPTZ,
+      rejected_at TIMESTAMPTZ
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_promotion_approval_requests_created_at
+    ON promotion_approval_requests (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_promotion_approval_requests_status
+    ON promotion_approval_requests (status, created_at DESC);
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS bot_runtime_controls (
       control_key TEXT PRIMARY KEY,
       is_paused BOOLEAN NOT NULL DEFAULT FALSE,

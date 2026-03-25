@@ -1,4 +1,4 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/$/, '');
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -10,7 +10,7 @@ async function request(path, options = {}) {
   });
 
   if (!response.ok) {
-    let message = `Erro ${response.status}`;
+    let message = `Request failed with status ${response.status}`;
 
     try {
       const payload = await response.json();
@@ -154,6 +154,46 @@ export function runOptimization(payload) {
 
 export function fetchPromotions(limit = 10) {
   return request(`/api/promotions?limit=${limit}`);
+}
+
+export function fetchPromotionRequests(limit = 10, status = '') {
+  const suffix = status ? `&status=${encodeURIComponent(status)}` : '';
+  return request(`/api/promotions/requests?limit=${limit}${suffix}`);
+}
+
+export function simulatePromotionWinner(optimizationRunId, payload) {
+  return request(`/api/promotions/simulate/from-optimizer/${optimizationRunId}`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export function requestPromotionApproval(optimizationRunId, payload) {
+  return request(`/api/promotions/requests/from-optimizer/${optimizationRunId}`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export function approvePromotionRequest(requestId, payload) {
+  return request(`/api/promotions/requests/${requestId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export function rejectPromotionRequest(requestId, payload) {
+  return request(`/api/promotions/requests/${requestId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export function rollbackConfigVersion(version, payload) {
+  return request(`/api/promotions/rollback/${version}`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
 }
 
 export function promoteOptimizationWinner(optimizationRunId, payload) {

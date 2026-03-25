@@ -17,10 +17,15 @@ import {
   fetchStatus,
   fetchOptimizations,
   fetchPromotions,
+  fetchPromotionRequests,
   getApiBaseUrl,
   runBacktest,
   runOptimization,
-  promoteOptimizationWinner,
+  simulatePromotionWinner,
+  requestPromotionApproval,
+  approvePromotionRequest,
+  rejectPromotionRequest,
+  rollbackConfigVersion,
   pauseControl,
   resumeControl,
   triggerEmergencyStop,
@@ -155,6 +160,7 @@ const DEFAULT_STATUS = {
   recentBacktests: [],
   recentOptimizations: [],
   recentPromotions: [],
+  recentApprovalRequests: [],
   configAudit: [],
   timestamp: null,
 };
@@ -250,6 +256,7 @@ export default function App() {
     configHistory: [],
     configAudit: [],
     promotions: [],
+    approvalRequests: [],
     backtests: [],
     optimizations: [],
   });
@@ -265,6 +272,7 @@ export default function App() {
   const [optimizationLoading, setOptimizationLoading] = useState('');
   const [optimizationResult, setOptimizationResult] = useState(null);
   const [promotionLoading, setPromotionLoading] = useState('');
+  const [promotionSimulation, setPromotionSimulation] = useState(null);
 
   const loadEverything = async () => {
     setError('');
@@ -275,6 +283,7 @@ export default function App() {
         configHistoryData,
         configAuditData,
         promotionsData,
+        approvalRequestsData,
         statusData,
         portfolioData,
         ordersData,
@@ -291,6 +300,7 @@ export default function App() {
         fetchConfigHistory(10),
         fetchConfigAudit(15),
         fetchPromotions(10),
+        fetchPromotionRequests(10),
         fetchStatus(),
         fetchPortfolio(),
         fetchOrders(20),
@@ -318,6 +328,7 @@ export default function App() {
         configHistory: configHistoryData.items || [],
         configAudit: configAuditData.items || [],
         promotions: promotionsData.items || [],
+        approvalRequests: approvalRequestsData.items || [],
         backtests: backtestsData.items || [],
         optimizations: optimizationsData.items || [],
       });
@@ -378,6 +389,7 @@ export default function App() {
   const configHistory = status.configHistory?.length ? status.configHistory : auxData.configHistory;
   const configAudit = status.configAudit?.length ? status.configAudit : auxData.configAudit;
   const recentPromotions = status.recentPromotions?.length ? status.recentPromotions : auxData.promotions;
+  const recentApprovalRequests = status.recentApprovalRequests?.length ? status.recentApprovalRequests : auxData.approvalRequests;
   const recentBacktests = status.recentBacktests?.length ? status.recentBacktests : auxData.backtests;
   const recentOptimizations = status.recentOptimizations?.length ? status.recentOptimizations : auxData.optimizations;
   const execution = status.execution || DEFAULT_STATUS.execution;
@@ -555,6 +567,94 @@ const handleRunOptimization = async () => {
   }
 };
 
+const handleSimulatePromotion = async (optimizationRunId, targetChannel) => {
+  setPromotionLoading(`simulate-${targetChannel}-${optimizationRunId}`);
+  setError('');
+  try {
+    const result = await simulatePromotionWinner(optimizationRunId, {
+      targetChannel,
+      rank: 1,
+    });
+    setPromotionSimulation(result);
+    setSaveMessage('Simulação de promoção carregada.');
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao simular promoção.');
+  } finally {
+    setPromotionLoading('');
+  }
+};
+
+const handleRequestPromotion = async (optimizationRunId, targetChannel) => {
+  setPromotionLoading(`request-${targetChannel}-${optimizationRunId}`);
+  setError('');
+  try {
+    const result = await requestPromotionApproval(optimizationRunId, {
+      targetChannel,
+      rank: 1,
+      requestedBy: 'dashboard_requester',
+      reason: `request:${targetChannel}`,
+    });
+    setPromotionSimulation(result.simulation ? { ...result.simulation, summary: result.request?.summary } : null);
+    setSaveMessage(`Solicitação #${result.request?.id} criada para ${targetChannel}.`);
+    await loadEverything();
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao solicitar aprovação.');
+  } finally {
+    setPromotionLoading('');
+  }
+};
+
+const handleApproveRequest = async (requestId) => {
+  setPromotionLoading(`approve-${requestId}`);
+  setError('');
+  try {
+    const result = await approvePromotionRequest(requestId, {
+      approvedBy: 'dashboard_reviewer',
+      approvalNote: 'approved_from_dashboard',
+    });
+    setSaveMessage(`Solicitação #${result.request?.id} aprovada.`);
+    await loadEverything();
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao aprovar solicitação.');
+  } finally {
+    setPromotionLoading('');
+  }
+};
+
+const handleRejectRequest = async (requestId) => {
+  setPromotionLoading(`reject-${requestId}`);
+  setError('');
+  try {
+    const result = await rejectPromotionRequest(requestId, {
+      rejectedBy: 'dashboard_reviewer',
+      rejectionNote: 'rejected_from_dashboard',
+    });
+    setSaveMessage(`Solicitação #${result.request?.id || requestId} rejeitada.`);
+    await loadEverything();
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao rejeitar solicitação.');
+  } finally {
+    setPromotionLoading('');
+  }
+};
+
+const handleRollbackVersion = async (version) => {
+  setPromotionLoading(`rollback-${version}`);
+  setError('');
+  try {
+    const result = await rollbackConfigVersion(version, {
+      requestedBy: 'dashboard_reviewer',
+      reason: `rollback_to_v${version}`,
+    });
+    setSaveMessage(`Rollback aplicado da versão ${version} para a nova versão ${result.updatedConfig?.version}.`);
+    await loadEverything();
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao aplicar rollback.');
+  } finally {
+    setPromotionLoading('');
+  }
+};
+
   const providerStatuses = socialSummary?.providers || [];
 
   return (
@@ -565,7 +665,7 @@ const handleRunOptimization = async () => {
           <h1>Dashboard operacional</h1>
           <p className="hero__subtitle">
             Painel desacoplado dos workers. Nesta etapa, além do REST + SSE, o sistema ganhou promoção
-            controlada de configurações vencedoras, trilha de auditoria e revisão segura antes de qualquer passo rumo ao live.
+            controle de promoções com simulação prévia, aprovação em duas etapas, rollback assistido e revisão segura antes de qualquer passo rumo ao live.
           </p>
         </div>
         <div className="hero__status-group">
@@ -958,18 +1058,25 @@ const handleRunOptimization = async () => {
         <div className="muted">Top: {item.summary?.bestOverall?.symbol || '—'} / {item.summary?.bestOverall?.candidateName || '—'}</div>
         <div className="button-row">
           <button
-            className="button"
-            disabled={promotionLoading === `paper_active-${item.id}`}
-            onClick={() => handlePromoteWinner(item.id, 'paper_active')}
+            className="button button--ghost"
+            disabled={promotionLoading === `simulate-paper_active-${item.id}`}
+            onClick={() => handleSimulatePromotion(item.id, 'paper_active')}
           >
-            {promotionLoading === `paper_active-${item.id}` ? 'Promovendo...' : 'Promover p/ paper'}
+            {promotionLoading === `simulate-paper_active-${item.id}` ? 'Simulando...' : 'Simular paper'}
+          </button>
+          <button
+            className="button"
+            disabled={promotionLoading === `request-paper_active-${item.id}`}
+            onClick={() => handleRequestPromotion(item.id, 'paper_active')}
+          >
+            {promotionLoading === `request-paper_active-${item.id}` ? 'Solicitando...' : 'Solicitar aprovação paper'}
           </button>
           <button
             className="button button--ghost"
-            disabled={promotionLoading === `live_candidate-${item.id}`}
-            onClick={() => handlePromoteWinner(item.id, 'live_candidate')}
+            disabled={promotionLoading === `request-live_candidate-${item.id}`}
+            onClick={() => handleRequestPromotion(item.id, 'live_candidate')}
           >
-            {promotionLoading === `live_candidate-${item.id}` ? 'Registrando...' : 'Marcar p/ live review'}
+            {promotionLoading === `request-live_candidate-${item.id}` ? 'Solicitando...' : 'Solicitar live review'}
           </button>
         </div>
       </div>
@@ -977,13 +1084,63 @@ const handleRunOptimization = async () => {
   </div>
 </Section>
 
+          <Section title="Simulação de promoção" subtitle="Prévia assistida antes de virar solicitação ou aplicação.">
+            <div className="list-stack compact-scroll">
+              {promotionSimulation ? (
+                <div className="list-item list-item--column">
+                  <div className="decision-card__row">
+                    <strong>{promotionSimulation.summary?.candidateName || promotionSimulation.winner?.candidateName || 'simulação'}</strong>
+                    <Pill tone="info">{promotionSimulation.targetChannel || promotionSimulation.simulation?.targetChannel || 'paper_active'}</Pill>
+                  </div>
+                  <div className="muted">Símbolo {promotionSimulation.summary?.symbol || promotionSimulation.winner?.symbol || '—'} • score {formatNumber(promotionSimulation.summary?.score || promotionSimulation.winner?.score || 0, 2)}</div>
+                  <div className="muted">Versão atual {promotionSimulation.currentVersion || promotionSimulation.simulation?.currentVersion || 0}</div>
+                  <div className="muted">Mudanças: {(promotionSimulation.simulation?.changedPaths || []).slice(0, 5).map((item) => item.path).join(', ') || 'sem mudanças mapeadas'}</div>
+                  <div className="button-row">
+                    {promotionSimulation.simulation?.warnings?.length ? promotionSimulation.simulation.warnings.map((warning) => (
+                      <Pill key={warning} tone="warning">{warning}</Pill>
+                    )) : <Pill tone="buy">sem alertas críticos</Pill>}
+                  </div>
+                </div>
+              ) : <div className="muted">Use “Simular paper” em uma calibração para ver a prévia.</div>}
+            </div>
+          </Section>
+
+          <Section title="Solicitações de aprovação" subtitle="Fluxo em duas etapas: requester cria, reviewer aprova ou rejeita.">
+            <div className="list-stack compact-scroll">
+              {recentApprovalRequests?.length ? recentApprovalRequests.map((item) => (
+                <div key={item.id} className="list-item list-item--column">
+                  <div className="decision-card__row">
+                    <strong>Request #{item.id}</strong>
+                    <Pill tone={item.status === 'pending' ? 'warning' : item.status?.includes('approved') ? 'buy' : item.status === 'rejected' ? 'high' : 'info'}>{item.status}</Pill>
+                  </div>
+                  <div className="muted">{item.summary?.candidateName || 'candidate'} • {item.summary?.symbol || '—'} • {item.targetChannel}</div>
+                  <div className="muted">Requester {item.requestedBy || '—'} • {formatDateTime(item.createdAt)}</div>
+                  <div className="button-row">
+                    {item.status === 'pending' ? (
+                      <>
+                        <button className="button" disabled={promotionLoading === `approve-${item.id}`} onClick={() => handleApproveRequest(item.id)}>
+                          {promotionLoading === `approve-${item.id}` ? 'Aprovando...' : 'Aprovar'}
+                        </button>
+                        <button className="button button--ghost" disabled={promotionLoading === `reject-${item.id}`} onClick={() => handleRejectRequest(item.id)}>
+                          {promotionLoading === `reject-${item.id}` ? 'Rejeitando...' : 'Rejeitar'}
+                        </button>
+                      </>
+                    ) : (
+                      <span className="muted">Conclusão: {item.approvedBy || item.rejectedBy || '—'}</span>
+                    )}
+                  </div>
+                </div>
+              )) : <div className="muted">Sem solicitações recentes.</div>}
+            </div>
+          </Section>
+
           <Section title="Promoções recentes" subtitle="Aplicações em paper e candidatas para revisão live, sempre com segurança.">
             <div className="list-stack compact-scroll">
               {recentPromotions?.length ? recentPromotions.map((item) => (
                 <div key={item.id} className="list-item list-item--column">
                   <div className="decision-card__row">
                     <strong>{item.summary?.candidateName || 'winner'}</strong>
-                    <Pill tone={item.status === 'applied' ? 'buy' : 'warning'}>{item.targetChannel}</Pill>
+                    <Pill tone={item.status === 'applied' || item.status === 'rollback_applied' ? 'buy' : 'warning'}>{item.targetChannel}</Pill>
                   </div>
                   <div className="muted">{item.summary?.symbol || '—'} • {item.summary?.regimeLabel || 'mixed'}</div>
                   <div className="muted">Status {item.status} • versão {item.appliedVersion || 'não aplicada'}</div>
@@ -1009,12 +1166,17 @@ const handleRunOptimization = async () => {
             </div>
           </Section>
 
-          <Section title="Histórico de configuração" subtitle="Versões anteriores para auditoria e rollback manual.">
+          <Section title="Histórico de configuração" subtitle="Versões anteriores para auditoria e rollback assistido.">
             <div className="list-stack compact-scroll">
               {configHistory?.length ? configHistory.map((item) => (
                 <div key={item.id} className="list-item list-item--column">
                   <strong>Versão {item.version}</strong>
                   <div className="muted">{formatDateTime(item.createdAt)}</div>
+                  <div className="button-row">
+                    <button className="button button--ghost" disabled={promotionLoading === `rollback-${item.version}` || Number(item.version) === Number(configRow?.version || 0)} onClick={() => handleRollbackVersion(item.version)}>
+                      {promotionLoading === `rollback-${item.version}` ? 'Aplicando...' : Number(item.version) === Number(configRow?.version || 0) ? 'Versão atual' : 'Rollback para esta versão'}
+                    </button>
+                  </div>
                 </div>
               )) : <div className="muted">Sem histórico adicional ainda.</div>}
             </div>

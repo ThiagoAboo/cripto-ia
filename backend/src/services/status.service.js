@@ -6,7 +6,7 @@ const { getExecutionStatus } = require('./executionAdapter.service');
 const { getRuntimeControl, listCooldowns, getRiskGuardrailSummary } = require('./control.service');
 const { listBacktestRuns } = require('./backtest.service');
 const { listOptimizationRuns } = require('./optimizer.service');
-const { listPromotions } = require('./promotion.service');
+const { listPromotions, listPromotionRequests } = require('./promotion.service');
 
 async function getSystemStatus() {
   const [
@@ -14,6 +14,7 @@ async function getSystemStatus() {
     configHistory,
     configAudit,
     recentPromotions,
+    recentApprovalRequests,
     workers,
     recentEvents,
     recentDecisions,
@@ -34,6 +35,7 @@ async function getSystemStatus() {
     getConfigHistory({ limit: 5 }),
     listConfigAudit({ limit: 10 }),
     listPromotions({ limit: 5 }),
+    listPromotionRequests({ limit: 5 }),
     pool.query(
       `
         SELECT worker_name, status, last_seen_at, payload
@@ -85,6 +87,7 @@ async function getSystemStatus() {
     configHistory,
     configAudit,
     recentPromotions,
+    recentApprovalRequests,
     control: {
       ...control,
       activeCooldowns: cooldowns,

@@ -42,6 +42,7 @@ function normalizeConfigRow(row) {
   if (!row) return null;
   return {
     ...row,
+    version: row.version !== undefined && row.version !== null ? Number(row.version) : row.version,
     config: normalizeConfig(row.config || {}),
   };
 }
@@ -118,6 +119,25 @@ async function getConfigHistory({ limit = 20 } = {}) {
   );
 
   return result.rows.map(normalizeConfigRow);
+}
+
+async function getConfigVersion(version) {
+  const safeVersion = Number(version);
+  if (!Number.isFinite(safeVersion) || safeVersion <= 0) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT id, config_key, version, config, created_at AS "createdAt"
+      FROM bot_config_versions
+      WHERE config_key = 'active' AND version = $1
+      LIMIT 1
+    `,
+    [safeVersion],
+  );
+
+  return normalizeConfigRow(result.rows[0] || null);
 }
 
 async function listConfigAudit({ limit = 20 } = {}) {
@@ -227,6 +247,7 @@ module.exports = {
   normalizeConfig,
   getActiveConfig,
   getConfigHistory,
+  getConfigVersion,
   listConfigAudit,
   updateActiveConfig,
 };
