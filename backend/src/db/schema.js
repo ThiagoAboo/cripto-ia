@@ -41,6 +41,7 @@ const DEFAULT_BOT_CONFIG = {
       provider: 'binance_spot',
       useTestnet: true,
       dryRun: true,
+      supervised: true,
       requireBackendLiveFlag: true,
       recvWindow: 5000,
     },
@@ -510,6 +511,41 @@ async function initializeDatabase() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_live_order_attempts_created_at
     ON live_order_attempts (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS execution_health_checks (
+      id BIGSERIAL PRIMARY KEY,
+      provider TEXT NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'paper',
+      status TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'info',
+      requested_by TEXT NOT NULL DEFAULT 'system',
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_execution_health_checks_created_at
+    ON execution_health_checks (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS execution_reconciliation_runs (
+      id BIGSERIAL PRIMARY KEY,
+      provider TEXT NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'paper',
+      status TEXT NOT NULL,
+      requested_by TEXT NOT NULL DEFAULT 'system',
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_execution_reconciliation_runs_created_at
+    ON execution_reconciliation_runs (created_at DESC);
   `);
 
   await pool.query(`

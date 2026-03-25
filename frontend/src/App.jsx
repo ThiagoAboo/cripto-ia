@@ -9,6 +9,8 @@ import {
   fetchControl,
   fetchDecisions,
   fetchHealth,
+  runExecutionHealthcheck,
+  runExecutionReconciliation,
   fetchOrders,
   fetchPortfolio,
   fetchSocialAlerts,
@@ -153,7 +155,7 @@ const DEFAULT_STATUS = {
   recentDecisions: [],
   recentOrders: [],
   portfolio: { baseCurrency: 'USDT', positions: [] },
-  execution: { mode: 'paper', dryRun: true, capabilities: {}, recentLiveAttempts: [] },
+  execution: { mode: 'paper', dryRun: true, capabilities: {}, recentLiveAttempts: [], latestHealthCheck: null, recentHealthChecks: [], recentReconciliations: [] },
   social: { topScores: [], recentAlerts: [], providers: [], attribution: {} },
   control: { isPaused: false, emergencyStop: false, activeCooldowns: [], guardrails: {} },
   configHistory: [],
@@ -273,6 +275,7 @@ export default function App() {
   const [optimizationResult, setOptimizationResult] = useState(null);
   const [promotionLoading, setPromotionLoading] = useState('');
   const [promotionSimulation, setPromotionSimulation] = useState(null);
+  const [executionActionLoading, setExecutionActionLoading] = useState('');
 
   const loadEverything = async () => {
     setError('');
@@ -655,6 +658,21 @@ const handleRollbackVersion = async (version) => {
   }
 };
 
+
+const handleExecutionAction = async (actionName, action, successMessage) => {
+  setExecutionActionLoading(actionName);
+  setError('');
+  try {
+    await action();
+    await loadEverything();
+    setSaveMessage(successMessage);
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao executar ação de execution.');
+  } finally {
+    setExecutionActionLoading('');
+  }
+};
+
   const providerStatuses = socialSummary?.providers || [];
 
   return (
@@ -665,7 +683,7 @@ const handleRollbackVersion = async (version) => {
           <h1>Dashboard operacional</h1>
           <p className="hero__subtitle">
             Painel desacoplado dos workers. Nesta etapa, além do REST + SSE, o sistema ganhou promoção
-            controle de promoções com simulação prévia, aprovação em duas etapas, rollback assistido e revisão segura antes de qualquer passo rumo ao live.
+            controle de promoções com simulação prévia, aprovação em duas etapas, rollback assistido e agora healthchecks de execução, reconciliação supervisionada e preparação segura para testnet/live.
           </p>
         </div>
         <div className="hero__status-group">
@@ -741,6 +759,78 @@ const handleRollbackVersion = async (version) => {
                   {!guardrails.dailyLossLimitReached && !guardrails.lossStreakLimitReached ? <Pill tone="buy">guardrails ok</Pill> : null}
                 </div>
               </div>
+            </div>
+          </Section>
+
+          <Section
+            title="Execução supervisionada"
+            subtitle="Healthchecks e reconciliação ajudam a preparar testnet/live sem ligar o modo live por acidente."
+            actions={(
+              <div className="button-row">
+                <button
+                  className="button"
+                  disabled={executionActionLoading === 'healthcheck'}
+                  onClick={() => handleExecutionAction('healthcheck', () => runExecutionHealthcheck({ requestedBy: 'dashboard' }), 'Healthcheck de execução concluído.')}
+                >
+                  {executionActionLoading === 'healthcheck' ? 'Checando...' : 'Rodar healthcheck'}
+                </button>
+                <button
+                  className="button"
+                  disabled={executionActionLoading === 'reconcile'}
+                  onClick={() => handleExecutionAction('reconcile', () => runExecutionReconciliation({ requestedBy: 'dashboard', symbols: draftConfig?.trading?.symbols || [] }), 'Reconciliação concluída.')}
+                >
+                  {executionActionLoading === 'reconcile' ? 'Conciliando...' : 'Rodar reconciliação'}
+                </button>
+              </div>
+            )}
+          >
+            <div className="list-stack">
+              <div className="list-item list-item--column">
+                <div>
+                  <strong>Status atual do adapter</strong>
+                  <div className="muted">
+                    Modo: {execution.mode} • Provider: {execution.provider} • Testnet: {execution.useTestnet ? 'sim' : 'não'} • Dry run: {execution.dryRun ? 'sim' : 'não'}
+                  </div>
+                </div>
+                <div className="button-row">
+                  <Pill tone={execution.liveReady ? 'buy' : execution.mode === 'live' ? 'warning' : 'info'}>
+                    {execution.liveReady ? 'live ready' : execution.mode === 'live' ? 'live incompleto' : 'paper ativo'}
+                  </Pill>
+                  {execution.supervised ? <Pill tone="warning">supervisionado</Pill> : null}
+                </div>
+              </div>
+
+              <div className="list-item list-item--column">
+                <div>
+                  <strong>Último healthcheck</strong>
+                  <div className="muted">
+                    {execution.latestHealthCheck?.createdAt ? formatDateTime(execution.latestHealthCheck.createdAt) : 'Ainda não executado'}
+                  </div>
+                </div>
+                <div className="button-row">
+                  {execution.latestHealthCheck ? <Pill tone={execution.latestHealthCheck.status === 'ok' ? 'buy' : execution.latestHealthCheck.status === 'warning' ? 'warning' : 'high'}>{execution.latestHealthCheck.status}</Pill> : <Pill tone="info">sem healthcheck</Pill>}
+                  {execution.latestHealthCheck?.summary?.checks?.map((item) => (
+                    <span key={item.check} className="muted">{item.check}:{item.ok ? 'ok' : item.skipped ? 'skip' : 'falha'}</span>
+                  ))}
+                </div>
+              </div>
+
+              {(execution.recentReconciliations || []).slice(0, 4).map((item) => (
+                <div key={item.id} className="list-item list-item--column">
+                  <div>
+                    <strong>Reconciliação #{item.id}</strong>
+                    <div className="muted">
+                      {formatDateTime(item.createdAt)} • Open orders remotas: {formatNumber(item.summary?.remoteOpenOrdersCount || 0, 0)} • Saldos não zerados: {formatNumber(item.summary?.remoteNonZeroBalancesCount || 0, 0)}
+                    </div>
+                  </div>
+                  <div className="button-row">
+                    <Pill tone={item.status === 'ok' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{item.status}</Pill>
+                    {(item.summary?.unmatchedBalances || []).slice(0, 3).map((balance) => (
+                      <span key={balance.asset} className="muted">{balance.asset}: {formatNumber((balance.free || 0) + (balance.locked || 0), 6)}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </Section>
 

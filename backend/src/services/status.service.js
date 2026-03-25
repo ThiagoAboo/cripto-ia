@@ -1,4 +1,5 @@
 const pool = require('../db/pool');
+const env = require('../config/env');
 const { getActiveConfig, getConfigHistory, listConfigAudit } = require('./config.service');
 const { getPaperSummary, listPaperOrders } = require('./portfolio.service');
 const { getSocialSummary, getSocialScores, listSocialAlerts } = require('./social.service');
@@ -93,7 +94,16 @@ async function getSystemStatus() {
       activeCooldowns: cooldowns,
       guardrails,
     },
-    workers: workers.rows,
+    workers: workers.rows.map((row) => {
+      const ageMs = row.last_seen_at ? Date.now() - new Date(row.last_seen_at).getTime() : null;
+      const stale = ageMs !== null ? ageMs > (env.health.workerStaleAfterSec * 1000) : true;
+      return {
+        ...row,
+        stale,
+        derivedStatus: stale ? 'stale' : row.status,
+        ageSec: ageMs !== null ? Math.round(ageMs / 1000) : null,
+      };
+    }),
     recentEvents: recentEvents.rows,
     recentDecisions: recentDecisions.rows.map((row) => ({
       ...row,

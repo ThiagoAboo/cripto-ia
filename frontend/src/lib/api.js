@@ -202,3 +202,25 @@ export function promoteOptimizationWinner(optimizationRunId, payload) {
     body: JSON.stringify(payload || {}),
   });
 }
+
+export function fetchExecutionHealthchecks(limit = 10) {
+  return request(`/api/execution/healthchecks?limit=${limit}`);
+}
+
+export function runExecutionHealthcheck(payload = {}) {
+  return request('/api/execution/healthcheck', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchExecutionReconciliations(limit = 10) {
+  return request(`/api/execution/reconciliations?limit=${limit}`);
+}
+
+export function runExecutionReconciliation(payload = {}) {
+  return request('/api/execution/reconcile', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

@@ -30,9 +30,15 @@ module.exports = {
     cacheTtlSec: Number(getEnv('MARKET_CACHE_TTL_SEC', 20)),
     defaultCandleLimit: Number(getEnv('CANDLE_DEFAULT_LIMIT', 300)),
   },
+  health: {
+    workerStaleAfterSec: Number(getEnv('WORKER_STALE_AFTER_SEC', 90)),
+    sseSnapshotIntervalSec: Number(getEnv('SSE_SNAPSHOT_INTERVAL_SEC', 15)),
+  },
   execution: {
     liveEnabled: getBooleanEnv('EXECUTION_LIVE_ENABLED', false),
     defaultMode: getEnv('EXECUTION_DEFAULT_MODE', 'paper'),
+    healthcheckTimeoutMs: Number(getEnv('EXECUTION_HEALTHCHECK_TIMEOUT_MS', 12000)),
+    reconciliationLookbackHours: Number(getEnv('EXECUTION_RECONCILIATION_LOOKBACK_HOURS', 24)),
     binance: {
       apiBaseUrl: getEnv('BINANCE_TRADE_API_BASE_URL', 'https://api.binance.com').replace(/\/$/, ''),
       apiKey: getEnv('BINANCE_API_KEY', ''),

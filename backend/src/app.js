@@ -23,7 +23,7 @@ app.use(express.json({ limit: '1mb' }));
 app.get('/', (_request, response) => {
   response.json({
     service: 'cripto-ia-backend',
-    version: '1.11.0',
+    version: '1.12.0',
     timestamp: new Date().toISOString(),
   });
 });

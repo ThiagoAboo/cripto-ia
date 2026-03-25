@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const env = require('../config/env');
 const pool = require('../db/pool');
 const { getActiveConfig } = require('./config.service');
+const { publish } = require('./eventBus.service');
 const { executePaperOrder } = require('./execution.service');
 
 function bool(value) {
@@ -17,6 +18,7 @@ function buildExecutionSummary(config = {}) {
   const provider = String(liveConfig.provider || 'binance_spot');
   const dryRun = liveConfig.dryRun ?? env.execution.binance.dryRun;
   const useTestnet = liveConfig.useTestnet ?? env.execution.binance.testnet;
+  const supervised = liveConfig.supervised ?? true;
 
   return {
     mode: tradingMode,
@@ -26,6 +28,7 @@ function buildExecutionSummary(config = {}) {
     provider,
     dryRun: Boolean(dryRun),
     useTestnet: Boolean(useTestnet),
+    supervised: Boolean(supervised),
     capabilities: {
       paper: true,
       liveAdapterAvailable: provider === 'binance_spot',
@@ -33,6 +36,8 @@ function buildExecutionSummary(config = {}) {
       liveCanSubmit: backendLiveEnabled && liveConfigEnabled && liveKeysPresent,
       liveUsesSignedRequests: true,
       liveRecommended: false,
+      healthchecksAvailable: true,
+      reconciliationAvailable: provider === 'binance_spot',
     },
   };
 }
@@ -378,35 +383,56 @@ async function getExecutionStatus() {
   const config = configRow?.config || {};
   const summary = buildExecutionSummary(config);
 
-  const recentLiveAttempts = await pool.query(
-    `
-      SELECT
-        id,
-        provider,
-        worker_name AS "workerName",
-        symbol,
-        side,
-        status,
-        live_mode_enabled AS "liveModeEnabled",
-        dry_run AS "dryRun",
-        requested_notional AS "requestedNotional",
-        requested_quantity AS "requestedQuantity",
-        executed_notional AS "executedNotional",
-        executed_quantity AS "executedQuantity",
-        price,
-        reason,
-        rejection_reason AS "rejectionReason",
-        external_order_id AS "externalOrderId",
-        created_at AS "createdAt"
-      FROM live_order_attempts
-      ORDER BY created_at DESC
-      LIMIT 20
-    `,
-  );
+  const [recentLiveAttempts, recentHealthChecks, recentReconciliations] = await Promise.all([
+    pool.query(
+      `
+        SELECT
+          id,
+          provider,
+          worker_name AS "workerName",
+          symbol,
+          side,
+          status,
+          live_mode_enabled AS "liveModeEnabled",
+          dry_run AS "dryRun",
+          requested_notional AS "requestedNotional",
+          requested_quantity AS "requestedQuantity",
+          executed_notional AS "executedNotional",
+          executed_quantity AS "executedQuantity",
+          price,
+          reason,
+          rejection_reason AS "rejectionReason",
+          external_order_id AS "externalOrderId",
+          created_at AS "createdAt"
+        FROM live_order_attempts
+        ORDER BY created_at DESC
+        LIMIT 20
+      `,
+    ),
+    pool.query(
+      `
+        SELECT id, provider, mode, status, severity, requested_by AS "requestedBy", summary, created_at AS "createdAt"
+        FROM execution_health_checks
+        ORDER BY created_at DESC
+        LIMIT 10
+      `,
+    ),
+    pool.query(
+      `
+        SELECT id, provider, mode, status, requested_by AS "requestedBy", summary, created_at AS "createdAt"
+        FROM execution_reconciliation_runs
+        ORDER BY created_at DESC
+        LIMIT 10
+      `,
+    ),
+  ]);
 
   return {
     ...summary,
     configVersion: configRow?.version || 0,
+    latestHealthCheck: recentHealthChecks.rows[0] || null,
+    recentHealthChecks: recentHealthChecks.rows,
+    recentReconciliations: recentReconciliations.rows,
     recentLiveAttempts: recentLiveAttempts.rows.map((row) => ({
       ...row,
       requestedNotional: Number(row.requestedNotional),
@@ -418,7 +444,271 @@ async function getExecutionStatus() {
   };
 }
 
+
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), env.execution.healthcheckTimeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchJson(url, options = {}) {
+  const response = await fetchWithTimeout(url, options);
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch (_error) {
+    payload = { raw: text };
+  }
+  return { ok: response.ok, status: response.status, payload };
+}
+
+async function binancePublicGet(path, configSummary) {
+  const baseUrl = buildTradeApiBaseUrl(configSummary);
+  return fetchJson(`${baseUrl}${path}`, { headers: { Accept: 'application/json' } });
+}
+
+async function binanceSignedGet(path, params, configSummary) {
+  const baseUrl = buildTradeApiBaseUrl(configSummary);
+  const finalParams = {
+    ...params,
+    timestamp: Date.now(),
+    recvWindow: env.execution.binance.recvWindow,
+  };
+  const { serialized, signature } = signParams(finalParams);
+  return fetchJson(`${baseUrl}${path}?${serialized}&signature=${signature}`, {
+    headers: {
+      Accept: 'application/json',
+      'X-MBX-APIKEY': env.execution.binance.apiKey,
+    },
+  });
+}
+
+async function insertExecutionHealthCheck({ provider, mode, status, severity, requestedBy, summary }) {
+  const result = await pool.query(
+    `
+      INSERT INTO execution_health_checks (provider, mode, status, severity, requested_by, summary, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())
+      RETURNING id, provider, mode, status, severity, requested_by AS "requestedBy", summary, created_at AS "createdAt"
+    `,
+    [provider, mode, status, severity, requestedBy, JSON.stringify(summary || {})],
+  );
+  return result.rows[0];
+}
+
+async function insertExecutionReconciliation({ provider, mode, status, requestedBy, summary }) {
+  const result = await pool.query(
+    `
+      INSERT INTO execution_reconciliation_runs (provider, mode, status, requested_by, summary, created_at)
+      VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+      RETURNING id, provider, mode, status, requested_by AS "requestedBy", summary, created_at AS "createdAt"
+    `,
+    [provider, mode, status, requestedBy, JSON.stringify(summary || {})],
+  );
+  return result.rows[0];
+}
+
+async function listExecutionHealthChecks({ limit = 20 } = {}) {
+  const result = await pool.query(
+    `
+      SELECT id, provider, mode, status, severity, requested_by AS "requestedBy", summary, created_at AS "createdAt"
+      FROM execution_health_checks
+      ORDER BY created_at DESC
+      LIMIT $1
+    `,
+    [Math.max(1, Math.min(Number(limit || 20), 100))],
+  );
+  return result.rows;
+}
+
+async function listExecutionReconciliations({ limit = 20 } = {}) {
+  const result = await pool.query(
+    `
+      SELECT id, provider, mode, status, requested_by AS "requestedBy", summary, created_at AS "createdAt"
+      FROM execution_reconciliation_runs
+      ORDER BY created_at DESC
+      LIMIT $1
+    `,
+    [Math.max(1, Math.min(Number(limit || 20), 100))],
+  );
+  return result.rows;
+}
+
+async function runExecutionHealthCheck({ requestedBy = 'dashboard' } = {}) {
+  const configRow = await getActiveConfig();
+  const config = configRow?.config || {};
+  const summary = buildExecutionSummary(config);
+  const checks = [];
+  let status = 'ok';
+  let severity = 'positive';
+
+  const startedAt = Date.now();
+  const timeResponse = await binancePublicGet('/api/v3/time', summary);
+  checks.push({
+    check: 'server_time',
+    ok: Boolean(timeResponse.ok),
+    httpStatus: timeResponse.status,
+    latencyMs: Date.now() - startedAt,
+  });
+
+  if (!timeResponse.ok) {
+    status = 'error';
+    severity = 'danger';
+  }
+
+  let accountSnapshot = null;
+  if (env.execution.binance.apiKey && env.execution.binance.apiSecret) {
+    const accountResponse = await binanceSignedGet('/api/v3/account', {}, summary);
+    accountSnapshot = accountResponse.payload;
+    checks.push({
+      check: 'account_read',
+      ok: Boolean(accountResponse.ok),
+      httpStatus: accountResponse.status,
+      canTrade: Boolean(accountResponse.payload?.canTrade),
+      balancesCount: Array.isArray(accountResponse.payload?.balances) ? accountResponse.payload.balances.length : 0,
+    });
+
+    if (!accountResponse.ok && status !== 'error') {
+      status = 'warning';
+      severity = 'warning';
+    }
+  } else {
+    checks.push({
+      check: 'account_read',
+      ok: false,
+      skipped: true,
+      reason: 'missing_binance_api_credentials',
+    });
+    if (status !== 'error') {
+      status = 'warning';
+      severity = 'warning';
+    }
+  }
+
+  const row = await insertExecutionHealthCheck({
+    provider: summary.provider,
+    mode: summary.mode,
+    status,
+    severity,
+    requestedBy,
+    summary: {
+      configVersion: configRow?.version || 0,
+      useTestnet: summary.useTestnet,
+      dryRun: summary.dryRun,
+      supervised: summary.supervised,
+      checks,
+      account: accountSnapshot && typeof accountSnapshot === 'object' ? {
+        canTrade: Boolean(accountSnapshot.canTrade),
+        balancesCount: Array.isArray(accountSnapshot.balances) ? accountSnapshot.balances.length : 0,
+        permissions: accountSnapshot.permissions || [],
+      } : null,
+    },
+  });
+
+  publish('execution.healthcheck', row);
+  return row;
+}
+
+async function runExecutionReconciliation({ requestedBy = 'dashboard', symbols = [] } = {}) {
+  const configRow = await getActiveConfig();
+  const config = configRow?.config || {};
+  const summary = buildExecutionSummary(config);
+
+  if (!env.execution.binance.apiKey || !env.execution.binance.apiSecret) {
+    const row = await insertExecutionReconciliation({
+      provider: summary.provider,
+      mode: summary.mode,
+      status: 'skipped',
+      requestedBy,
+      summary: {
+        reason: 'missing_binance_api_credentials',
+        configVersion: configRow?.version || 0,
+      },
+    });
+    publish('execution.reconciliation', row);
+    return row;
+  }
+
+  const accountResponse = await binanceSignedGet('/api/v3/account', {}, summary);
+  const openOrdersResponse = await binanceSignedGet('/api/v3/openOrders', {}, summary);
+  const lookbackHours = env.execution.reconciliationLookbackHours;
+
+  const recentAttemptsResult = await pool.query(
+    `
+      SELECT id, symbol, side, status, external_order_id AS "externalOrderId", created_at AS "createdAt"
+      FROM live_order_attempts
+      WHERE created_at >= NOW() - ($1::text || ' hours')::interval
+      ORDER BY created_at DESC
+      LIMIT 200
+    `,
+    [String(lookbackHours)],
+  );
+
+  const recentAttempts = recentAttemptsResult.rows;
+  const balances = Array.isArray(accountResponse.payload?.balances) ? accountResponse.payload.balances : [];
+  const nonZeroBalances = balances
+    .map((item) => ({ asset: item.asset, free: Number(item.free || 0), locked: Number(item.locked || 0) }))
+    .filter((item) => (item.free + item.locked) > 0);
+
+  const openOrders = Array.isArray(openOrdersResponse.payload) ? openOrdersResponse.payload : [];
+  const filteredOpenOrders = symbols.length
+    ? openOrders.filter((item) => symbols.includes(String(item.symbol || '').toUpperCase()))
+    : openOrders;
+
+  const trackedSymbols = new Set((config?.trading?.symbols || []).map((item) => String(item).toUpperCase()));
+  symbols.forEach((item) => trackedSymbols.add(String(item).toUpperCase()));
+
+  const unmatchedBalances = nonZeroBalances
+    .filter((item) => item.asset !== (config?.trading?.baseCurrency || 'USDT'))
+    .filter((item) => !trackedSymbols.has(`${item.asset}${config?.trading?.baseCurrency || 'USDT'}`))
+    .slice(0, 20);
+
+  const status = (accountResponse.ok && openOrdersResponse.ok) ? (unmatchedBalances.length ? 'warning' : 'ok') : 'error';
+
+  const row = await insertExecutionReconciliation({
+    provider: summary.provider,
+    mode: summary.mode,
+    status,
+    requestedBy,
+    summary: {
+      configVersion: configRow?.version || 0,
+      useTestnet: summary.useTestnet,
+      dryRun: summary.dryRun,
+      recentAttemptsCount: recentAttempts.length,
+      remoteOpenOrdersCount: filteredOpenOrders.length,
+      remoteNonZeroBalancesCount: nonZeroBalances.length,
+      unmatchedBalances,
+      openOrdersPreview: filteredOpenOrders.slice(0, 20).map((item) => ({
+        symbol: item.symbol,
+        side: item.side,
+        type: item.type,
+        status: item.status,
+        origQty: Number(item.origQty || 0),
+        executedQty: Number(item.executedQty || 0),
+      })),
+      recentAttempts: recentAttempts.slice(0, 20),
+      checks: [
+        { check: 'account_read', ok: Boolean(accountResponse.ok), httpStatus: accountResponse.status },
+        { check: 'open_orders_read', ok: Boolean(openOrdersResponse.ok), httpStatus: openOrdersResponse.status },
+      ],
+    },
+  });
+
+  publish('execution.reconciliation', row);
+  return row;
+}
+
 module.exports = {
   executeOrder,
   getExecutionStatus,
+  runExecutionHealthCheck,
+  listExecutionHealthChecks,
+  runExecutionReconciliation,
+  listExecutionReconciliations,
 };
