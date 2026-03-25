@@ -137,6 +137,12 @@ def get_active_config() -> Dict[str, Any]:
     return response.json()
 
 
+def get_training_runtime() -> Dict[str, Any]:
+    response = requests.get(f"{BACKEND_URL}/api/training/runtime", timeout=REQUEST_TIMEOUT_SEC)
+    response.raise_for_status()
+    return response.json()
+
+
 def get_candles(symbol: str, interval: str, limit: int, refresh: bool) -> List[Dict[str, Any]]:
     response = requests.get(
         f"{BACKEND_URL}/api/market/candles/{symbol}",
@@ -251,6 +257,36 @@ def submit_paper_order(symbol: str, side: str, linked_decision_id: int, reason: 
     )
     response.raise_for_status()
     return response.json()
+
+
+def submit_order(symbol: str, side: str, linked_decision_id: int, reason: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    response = session.post(
+        f"{BACKEND_URL}/internal/orders/execute",
+        data=json.dumps({
+            "workerName": WORKER_NAME,
+            "symbol": symbol,
+            "side": side,
+            "linkedDecisionId": linked_decision_id,
+            "reason": reason,
+            "payload": payload,
+            "actor": WORKER_NAME,
+        }),
+        timeout=REQUEST_TIMEOUT_SEC,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def report_training_runtime(payload: Dict[str, Any]) -> None:
+    response = session.post(
+        f"{BACKEND_URL}/api/training/runtime/worker-sync",
+        data=json.dumps({
+            "workerName": WORKER_NAME,
+            **payload,
+        }),
+        timeout=REQUEST_TIMEOUT_SEC,
+    )
+    response.raise_for_status()
 
 
 def sync_position_risk(symbol: str, payload: Dict[str, Any]) -> None:
@@ -578,13 +614,117 @@ def manage_open_positions(portfolio: Dict[str, Any], tickers: Dict[str, Dict[str
             })
 
 
-def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles: List[Dict[str, Any]], ticker: Dict[str, Any], config: Dict[str, Any], portfolio: Dict[str, Any], symbol: str, social_score: Dict[str, Any], control_state: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_weight_map(weights: Dict[str, Any]) -> Dict[str, float]:
+    normalized: Dict[str, float] = {}
+    total = 0.0
+    for key, value in (weights or {}).items():
+        numeric = max(float(value or 0.0), 0.0)
+        normalized[key] = numeric
+        total += numeric
+    if total <= 0:
+        return normalized
+    return {key: round(value / total, 4) for key, value in normalized.items()}
+
+
+def resolve_runtime_context(config_row: Dict[str, Any], training_runtime_payload: Dict[str, Any] | None) -> Dict[str, Any]:
+    config = config_row.get("config", {}) if isinstance(config_row, dict) else {}
+    training_cfg = config.get("training", {})
+    ai_cfg = config.get("ai", {})
+    runtime_payload = training_runtime_payload or {}
+    runtime = runtime_payload.get("runtime", {}) if isinstance(runtime_payload, dict) else {}
+
+    config_weights = normalize_weight_map(training_cfg.get("expertWeights") or ai_cfg.get("expertWeights") or {})
+    runtime_weights = normalize_weight_map(runtime.get("effectiveExpertWeights") or {})
+
+    adaptive_enabled = bool(training_cfg.get("adaptiveExpertsEnabled", True))
+    effective_weights = runtime_weights if adaptive_enabled and runtime_weights else config_weights
+
+    current_regime = (
+        runtime.get("currentRegime")
+        or training_cfg.get("currentRegime")
+        or training_cfg.get("activeRegimePreset")
+        or "mixed"
+    )
+
+    return {
+        "currentRegime": current_regime,
+        "effectiveExpertWeights": effective_weights,
+        "configExpertWeights": config_weights,
+        "source": runtime.get("source") or ("runtime" if runtime_weights else "config"),
+        "runtimeStatus": runtime.get("runtimeStatus") or ("ready" if runtime_weights else "config_only"),
+        "configVersionAtSync": runtime.get("configVersionAtSync"),
+        "lastRuntimeSyncAt": runtime.get("lastRuntimeSyncAt"),
+        "workerReportedAt": runtime.get("workerReportedAt"),
+        "workerName": runtime.get("workerName"),
+        "syncHealth": runtime.get("syncHealth") or "unknown",
+        "syncIssues": runtime.get("syncIssues") or [],
+        "notes": runtime.get("notes"),
+    }
+
+
+def apply_regime_thresholds(current_regime: str, buy_threshold: float, sell_threshold: float, decision_margin: float) -> Dict[str, float]:
+    regime = str(current_regime or "mixed").lower()
+    if regime == "trend_bull":
+        buy_threshold -= 0.03
+        sell_threshold += 0.03
+        decision_margin -= 0.01
+    elif regime == "trend_bear":
+        buy_threshold += 0.05
+        sell_threshold -= 0.03
+        decision_margin += 0.01
+    elif regime == "range":
+        buy_threshold += 0.02
+        sell_threshold += 0.02
+        decision_margin += 0.02
+    elif regime == "volatile":
+        buy_threshold += 0.05
+        sell_threshold += 0.03
+        decision_margin += 0.03
+    return {
+        "buyThreshold": round(clamp(buy_threshold, 0.40, 0.95), 4),
+        "sellThreshold": round(clamp(sell_threshold, 0.35, 0.95), 4),
+        "decisionMargin": round(clamp(decision_margin, 0.02, 0.25), 4),
+    }
+
+
+def determine_dominant_expert(experts: Dict[str, Dict[str, Any]], weights: Dict[str, float], action: str) -> Dict[str, Any]:
+    candidates: List[Dict[str, Any]] = []
+    for name, expert in experts.items():
+        weight = float(weights.get(name, 0.0))
+        if action == "BUY":
+            signal_score = float(expert.get("buy", 0.0))
+        elif action == "SELL":
+            signal_score = float(expert.get("sell", 0.0))
+        else:
+            signal_score = max(float(expert.get("buy", 0.0)), float(expert.get("sell", 0.0)))
+        weighted_score = round(signal_score * weight, 4)
+        candidates.append({
+            "name": name,
+            "weight": round(weight, 4),
+            "signalScore": round(signal_score, 4),
+            "weightedScore": weighted_score,
+            "label": expert.get("label"),
+        })
+    candidates.sort(key=lambda item: item["weightedScore"], reverse=True)
+    return {
+        "primary": candidates[0] if candidates else None,
+        "ranking": candidates,
+    }
+
+
+def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles: List[Dict[str, Any]], ticker: Dict[str, Any], config: Dict[str, Any], portfolio: Dict[str, Any], symbol: str, social_score: Dict[str, Any], control_state: Dict[str, Any], runtime_context: Dict[str, Any]) -> Dict[str, Any]:
     ai_config = config.get("ai", {})
     social_cfg = config.get("social", {})
-    weights = ai_config.get("expertWeights", {})
-    buy_threshold = float(ai_config.get("minConfidenceToBuy", 0.64))
-    sell_threshold = float(ai_config.get("minConfidenceToSell", 0.60))
-    decision_margin = float(ai_config.get("decisionMargin", 0.05))
+    weights = runtime_context.get("effectiveExpertWeights") or normalize_weight_map(ai_config.get("expertWeights", {}))
+    thresholds = apply_regime_thresholds(
+        runtime_context.get("currentRegime", "mixed"),
+        float(ai_config.get("minConfidenceToBuy", 0.64)),
+        float(ai_config.get("minConfidenceToSell", 0.60)),
+        float(ai_config.get("decisionMargin", 0.05)),
+    )
+    buy_threshold = thresholds["buyThreshold"]
+    sell_threshold = thresholds["sellThreshold"]
+    decision_margin = thresholds["decisionMargin"]
     social_extreme_threshold = float(ai_config.get("socialExtremeRiskThreshold", social_cfg.get("extremeRiskThreshold", 85)))
 
     features = compute_market_features(primary_candles, confirmation_candles, ticker)
@@ -656,6 +796,8 @@ def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles:
         reason = "multi_expert_sell_alignment"
         confidence = sell_score
 
+    dominant_expert = determine_dominant_expert(experts, weights, action)
+
     return {
         "action": action,
         "blocked": blocked,
@@ -663,7 +805,9 @@ def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles:
         "confidence": round(confidence, 4),
         "buyScore": round(buy_score, 4),
         "sellScore": round(sell_score, 4),
+        "appliedThresholds": thresholds,
         "experts": experts,
+        "dominantExpert": dominant_expert,
         "features": {
             key: round(value, 6) if isinstance(value, float) else value
             for key, value in features.items()
@@ -675,12 +819,30 @@ def evaluate_symbol(primary_candles: List[Dict[str, Any]], confirmation_candles:
             "emergencyStop": bool((control_state or {}).get("emergencyStop", False)),
             "cooldownActive": symbol in {item.get("symbol") for item in (control_state or {}).get("activeCooldowns", [])},
         },
+        "runtime": {
+            "currentRegime": runtime_context.get("currentRegime"),
+            "effectiveExpertWeights": runtime_context.get("effectiveExpertWeights"),
+            "source": runtime_context.get("source"),
+            "runtimeStatus": runtime_context.get("runtimeStatus"),
+            "syncHealth": runtime_context.get("syncHealth"),
+            "syncIssues": runtime_context.get("syncIssues", []),
+            "configVersionAtSync": runtime_context.get("configVersionAtSync"),
+            "lastRuntimeSyncAt": runtime_context.get("lastRuntimeSyncAt"),
+            "workerReportedAt": runtime_context.get("workerReportedAt"),
+        },
     }
 
 
 def loop_once() -> None:
     config_row = get_active_config()
     config = config_row.get("config", {})
+    training_runtime_payload = None
+    try:
+        training_runtime_payload = get_training_runtime()
+    except Exception as runtime_error:  # noqa: BLE001
+        print(f"[{WORKER_NAME}] falha ao carregar runtime do treinamento: {runtime_error}")
+    runtime_context = resolve_runtime_context(config_row, training_runtime_payload)
+
     trading_config = config.get("trading", {})
     ai_config = config.get("ai", {})
     social_cfg = config.get("social", {})
@@ -711,6 +873,12 @@ def loop_once() -> None:
             "tradingMode": trading_mode,
             "executionEndpoint": "/internal/orders/execute",
             "socialEnabled": social_cfg.get("enabled", True),
+            "trainingRuntime": {
+                "currentRegime": runtime_context.get("currentRegime"),
+                "runtimeStatus": runtime_context.get("runtimeStatus"),
+                "syncHealth": runtime_context.get("syncHealth"),
+                "source": runtime_context.get("source"),
+            },
             "runtimeControl": {
                 "isPaused": bool(control_state.get("isPaused", False)),
                 "emergencyStop": bool(control_state.get("emergencyStop", False)),
@@ -734,9 +902,25 @@ def loop_once() -> None:
             "openPositionsCount": portfolio.get("openPositionsCount", 0),
             "socialScoresCount": len(social_scores),
             "runtimePaused": bool(control_state.get("isPaused", False)),
+            "trainingRuntime": {
+                "currentRegime": runtime_context.get("currentRegime"),
+                "runtimeStatus": runtime_context.get("runtimeStatus"),
+                "syncHealth": runtime_context.get("syncHealth"),
+            },
             "emergencyStop": bool(control_state.get("emergencyStop", False)),
         },
     )
+
+    try:
+        report_training_runtime({
+            "currentRegime": runtime_context.get("currentRegime"),
+            "effectiveExpertWeights": runtime_context.get("effectiveExpertWeights"),
+            "runtimeStatus": "running",
+            "workerConfigVersionSeen": config_row.get("version", 0),
+            "notes": f"Worker ativo com regime {runtime_context.get('currentRegime', 'mixed')}",
+        })
+    except Exception as runtime_sync_error:  # noqa: BLE001
+        print(f"[{WORKER_NAME}] falha ao sincronizar runtime com backend: {runtime_sync_error}")
 
     manage_open_positions(portfolio, tickers, config)
 
@@ -758,7 +942,7 @@ def loop_once() -> None:
 
         ticker = tickers.get(symbol, {})
         social_score = social_scores.get(symbol, {})
-        evaluation = evaluate_symbol(primary_candles, confirmation_candles, ticker, config, portfolio, symbol, social_score, control_state)
+        evaluation = evaluate_symbol(primary_candles, confirmation_candles, ticker, config, portfolio, symbol, social_score, control_state, runtime_context)
 
         decision_payload = {
             "symbol": symbol,
@@ -786,8 +970,27 @@ def loop_once() -> None:
                 "blocked": evaluation["blocked"],
                 "confidence": evaluation["confidence"],
                 "reason": evaluation["reason"],
+                "currentRegime": evaluation.get("runtime", {}).get("currentRegime"),
+                "dominantExpert": (evaluation.get("dominantExpert", {}).get("primary") or {}).get("name"),
             },
         )
+
+        dominant_primary = evaluation.get("dominantExpert", {}).get("primary") or {}
+        try:
+            report_training_runtime({
+                "currentRegime": evaluation.get("runtime", {}).get("currentRegime"),
+                "effectiveExpertWeights": evaluation.get("runtime", {}).get("effectiveExpertWeights"),
+                "runtimeStatus": "running",
+                "workerConfigVersionSeen": config_row.get("version", 0),
+                "lastDecisionAction": evaluation.get("action"),
+                "lastDecisionReason": evaluation.get("reason"),
+                "lastDecisionAt": int(time.time()),
+                "dominantExpertKey": dominant_primary.get("name"),
+                "dominantExpertScore": dominant_primary.get("weightedScore"),
+                "notes": f"{symbol}: {evaluation.get('action')} via {dominant_primary.get('name', 'n/a')} em {evaluation.get('runtime', {}).get('currentRegime', 'mixed')}",
+            })
+        except Exception as runtime_sync_error:  # noqa: BLE001
+            print(f"[{WORKER_NAME}] falha ao reportar runtime da decisão: {runtime_sync_error}")
 
         if trading_enabled and evaluation["action"] in {"BUY", "SELL"} and not evaluation["blocked"]:
             order_payload = {
@@ -795,6 +998,9 @@ def loop_once() -> None:
                 "features": evaluation["features"],
                 "risk": evaluation["riskPlan"],
                 "social": social_score,
+                "runtime": evaluation.get("runtime"),
+                "dominantExpert": evaluation.get("dominantExpert"),
+                "appliedThresholds": evaluation.get("appliedThresholds"),
             }
             submit_order(symbol, evaluation["action"], decision["id"], evaluation["reason"], order_payload)
 

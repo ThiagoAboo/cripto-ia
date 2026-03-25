@@ -50,6 +50,9 @@ function translateStatus(value) {
     ready: 'pronto',
     idle: 'ocioso',
     running: 'em execução',
+    attention: 'atenção',
+    out_of_sync: 'fora de sincronia',
+    config_only: 'somente configuração',
   };
   return map[String(value || '').toLowerCase()] || (value ? String(value) : '—');
 }
@@ -535,11 +538,22 @@ export default function TreinamentoPage() {
             <div>Regime atual: <strong>{currentRuntime?.currentRegime || '—'}</strong></div>
             <div>Fonte: <strong>{currentRuntime?.source || '—'}</strong></div>
             <div>Status: <strong>{translateStatus(currentRuntime?.runtimeStatus)}</strong></div>
+            <div>Saúde da sincronização: <strong>{translateStatus(currentRuntime?.syncHealth)}</strong></div>
             <div>Última sincronização: <strong>{formatDateTime(currentRuntime?.lastRuntimeSyncAt)}</strong></div>
             <div>Último reporte do worker: <strong>{formatDateTime(currentRuntime?.workerReportedAt)}</strong></div>
+            <div>Defasagem do worker: <strong>{currentRuntime?.workerLagSeconds != null ? `${formatNumber(currentRuntime?.workerLagSeconds, 0)}s` : '—'}</strong></div>
             <div>Worker: <strong>{currentRuntime?.workerName || '—'}</strong></div>
             <div>Config usada no sync: <strong>{runtimePayload?.configVersion || currentRuntime?.configVersionAtSync || '—'}</strong></div>
+            <div>Versão vista pelo worker: <strong>{currentRuntime?.workerConfigVersionSeen || '—'}</strong></div>
+            <div>Última ação da AI: <strong>{currentRuntime?.lastDecisionAction || '—'}</strong></div>
+            <div>Motivo da última ação: <strong>{currentRuntime?.lastDecisionReason || '—'}</strong></div>
+            <div>Expert dominante: <strong>{currentRuntime?.dominantExpertKey || '—'}</strong>{currentRuntime?.dominantExpertScore != null ? ` • score ${formatNumber(currentRuntime?.dominantExpertScore, 4)}` : ''}</div>
             <div style={{ marginTop: 10, color: '#9ca3af' }}>{currentRuntime?.notes || 'Sem observações recentes.'}</div>
+            {(currentRuntime?.syncIssues || []).length ? (
+              <div style={{ marginTop: 10, color: '#fbbf24', fontSize: 13 }}>
+                Pendências: {(currentRuntime.syncIssues || []).join(' • ')}
+              </div>
+            ) : null}
           </div>
 
           <div style={{ ...shellCardStyle, padding: 14 }}>

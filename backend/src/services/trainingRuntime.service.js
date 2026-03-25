@@ -12,6 +12,15 @@ const DEFAULT_RUNTIME_STATE = {
   workerName: null,
   runtimeStatus: 'idle',
   notes: null,
+  syncHealth: 'unknown',
+  syncIssues: [],
+  workerLagSeconds: null,
+  workerConfigVersionSeen: null,
+  lastDecisionAction: null,
+  lastDecisionReason: null,
+  lastDecisionAt: null,
+  dominantExpertKey: null,
+  dominantExpertScore: null,
 };
 
 function round(value, decimals = 4) {
@@ -29,6 +38,50 @@ function normalizeWeights(weights = {}) {
   return Object.fromEntries(entries.map(([key, value]) => [key, round(value / total)]));
 }
 
+function diffSecondsFromNow(value) {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+}
+
+function buildSyncMeta(runtime = {}, configVersion = null) {
+  const syncIssues = [];
+  const workerLagSeconds = diffSecondsFromNow(runtime.workerReportedAt || runtime.lastRuntimeSyncAt || null);
+  const workerConfigVersionSeen = runtime.workerConfigVersionSeen || runtime.configVersionAtSync || null;
+
+  if (!runtime.workerReportedAt) {
+    syncIssues.push('worker_not_reported_yet');
+  }
+
+  if (workerLagSeconds !== null && workerLagSeconds > 180) {
+    syncIssues.push('worker_report_stale');
+  }
+
+  if (configVersion && workerConfigVersionSeen && Number(workerConfigVersionSeen) < Number(configVersion)) {
+    syncIssues.push('worker_using_old_config_version');
+  }
+
+  if (!runtime.effectiveExpertWeights) {
+    syncIssues.push('runtime_without_effective_weights');
+  }
+
+  let syncHealth = 'healthy';
+  if (syncIssues.includes('worker_not_reported_yet') || syncIssues.includes('runtime_without_effective_weights')) {
+    syncHealth = 'attention';
+  }
+  if (syncIssues.includes('worker_report_stale') || syncIssues.includes('worker_using_old_config_version')) {
+    syncHealth = 'out_of_sync';
+  }
+
+  return {
+    syncHealth,
+    syncIssues,
+    workerLagSeconds,
+    workerConfigVersionSeen,
+  };
+}
+
 function buildRuntimeState(training = {}, configVersion = null) {
   const runtime = training.runtime || {};
   const effectiveWeights =
@@ -36,7 +89,7 @@ function buildRuntimeState(training = {}, configVersion = null) {
     normalizeWeights(training.expertWeights) ||
     null;
 
-  return {
+  const resolved = {
     ...DEFAULT_RUNTIME_STATE,
     ...runtime,
     currentRegime:
@@ -48,6 +101,11 @@ function buildRuntimeState(training = {}, configVersion = null) {
     source: runtime.source || (effectiveWeights ? 'config' : DEFAULT_RUNTIME_STATE.source),
     configVersionAtSync: runtime.configVersionAtSync || configVersion || null,
     runtimeStatus: runtime.runtimeStatus || (effectiveWeights ? 'ready' : DEFAULT_RUNTIME_STATE.runtimeStatus),
+  };
+
+  return {
+    ...resolved,
+    ...buildSyncMeta(resolved, configVersion || null),
   };
 }
 
@@ -204,6 +262,13 @@ async function reportWorkerRuntime(payload = {}) {
     effectiveExpertWeights = null,
     runtimeStatus = 'running',
     notes = null,
+    syncHealth = null,
+    workerConfigVersionSeen = null,
+    lastDecisionAction = null,
+    lastDecisionReason = null,
+    lastDecisionAt = null,
+    dominantExpertKey = null,
+    dominantExpertScore = null,
   } = payload || {};
 
   return updateTrainingRuntimeState(
@@ -215,6 +280,13 @@ async function reportWorkerRuntime(payload = {}) {
       runtimeStatus,
       source: 'worker_report',
       notes,
+      syncHealth: syncHealth || undefined,
+      workerConfigVersionSeen: workerConfigVersionSeen || undefined,
+      lastDecisionAction: lastDecisionAction || undefined,
+      lastDecisionReason: lastDecisionReason || undefined,
+      lastDecisionAt: lastDecisionAt || undefined,
+      dominantExpertKey: dominantExpertKey || undefined,
+      dominantExpertScore: dominantExpertScore || undefined,
       lastRuntimeSyncAt: new Date().toISOString(),
     },
     {
