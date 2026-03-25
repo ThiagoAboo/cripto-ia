@@ -1,4 +1,3 @@
-
 const pool = require('../db/pool');
 const { getActiveConfig, updateActiveConfig, deepMerge } = require('./config.service');
 
@@ -398,8 +397,8 @@ async function fetchDriftRows({ symbolScope = [], interval = '5m', pointsPerSymb
   return result.rows;
 }
 
-async function persistTrainingArtifacts({ label, objective, symbolScope, windowDays, qualitySummary, expertEvaluations, suggestedWeights, driftSummary, requestedBy, appliedConfigVersion = null, applySuggestedWeights = false }) {
-  const trainingRunResult = await pool.query(
+async function createTrainingRun({ label, objective, symbolScope, windowDays, requestedBy, applySuggestedWeights }) {
+  const result = await pool.query(
     `
       INSERT INTO training_runs (
         label,
@@ -407,17 +406,86 @@ async function persistTrainingArtifacts({ label, objective, symbolScope, windowD
         symbol_scope,
         window_days,
         status,
-        started_at,
-        finished_at,
         summary,
         suggested_config_override,
         requested_by,
         apply_suggested_weights,
-        applied_config_version,
+        started_at,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3::jsonb, $4, 'completed', NOW(), NOW(), $5::jsonb, $6::jsonb, $7, $8, $9, NOW(), NOW())
+      VALUES ($1, $2, $3::jsonb, $4, 'running', '{}'::jsonb, '{}'::jsonb, $5, $6, NOW(), NOW(), NOW())
+      RETURNING
+        id,
+        label,
+        objective,
+        symbol_scope AS "symbolScope",
+        window_days AS "windowDays",
+        status,
+        requested_by AS "requestedBy",
+        apply_suggested_weights AS "applySuggestedWeights",
+        created_at AS "createdAt"
+    `,
+    [
+      String(label || 'manual-training-assistance'),
+      String(objective || 'quality_assistance'),
+      JSON.stringify(symbolScope || []),
+      Math.max(1, Math.min(Number(windowDays || 14), 180)),
+      String(requestedBy || 'dashboard'),
+      Boolean(applySuggestedWeights),
+    ],
+  );
+
+  return result.rows[0];
+}
+
+async function appendTrainingRunLog({ trainingRunId, level = 'info', stepKey = 'info', message, payload = null }) {
+  if (!trainingRunId) return null;
+
+  const result = await pool.query(
+    `
+      INSERT INTO training_run_logs (
+        training_run_id,
+        level,
+        step_key,
+        message,
+        payload,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+      RETURNING
+        id,
+        training_run_id AS "trainingRunId",
+        level,
+        step_key AS "stepKey",
+        message,
+        payload,
+        created_at AS "createdAt"
+    `,
+    [
+      trainingRunId,
+      String(level || 'info'),
+      String(stepKey || 'info'),
+      String(message || ''),
+      JSON.stringify(payload || {}),
+    ],
+  );
+
+  return result.rows[0];
+}
+
+async function finalizeTrainingRunSuccess({ trainingRunId, qualitySummary, expertEvaluations, suggestedWeights, driftSummary, appliedConfigVersion = null }) {
+  const result = await pool.query(
+    `
+      UPDATE training_runs
+      SET
+        status = 'completed',
+        summary = $2::jsonb,
+        suggested_config_override = $3::jsonb,
+        applied_config_version = $4,
+        finished_at = NOW(),
+        updated_at = NOW()
+      WHERE id = $1
       RETURNING
         id,
         label,
@@ -433,26 +501,55 @@ async function persistTrainingArtifacts({ label, objective, symbolScope, windowD
         created_at AS "createdAt"
     `,
     [
-      String(label || 'manual-training-assistance'),
-      String(objective || 'quality_assistance'),
-      JSON.stringify(symbolScope || []),
-      Math.max(1, Math.min(Number(windowDays || 14), 180)),
+      trainingRunId,
       JSON.stringify({ quality: qualitySummary, experts: expertEvaluations, drift: driftSummary }),
       JSON.stringify({ ai: { expertWeights: suggestedWeights } }),
-      String(requestedBy || 'dashboard'),
-      Boolean(applySuggestedWeights),
       appliedConfigVersion,
     ],
   );
 
-  const trainingRun = trainingRunResult.rows[0];
+  return result.rows[0];
+}
 
+async function finalizeTrainingRunFailure({ trainingRunId, errorMessage }) {
+  if (!trainingRunId) return null;
+
+  const result = await pool.query(
+    `
+      UPDATE training_runs
+      SET
+        status = 'failed',
+        summary = jsonb_set(COALESCE(summary, '{}'::jsonb), '{error}', to_jsonb($2::text), true),
+        finished_at = NOW(),
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING
+        id,
+        label,
+        objective,
+        symbol_scope AS "symbolScope",
+        window_days AS "windowDays",
+        status,
+        summary,
+        suggested_config_override AS "suggestedConfigOverride",
+        requested_by AS "requestedBy",
+        apply_suggested_weights AS "applySuggestedWeights",
+        applied_config_version AS "appliedConfigVersion",
+        created_at AS "createdAt"
+    `,
+    [trainingRunId, String(errorMessage || 'training_run_failed')],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function persistTrainingArtifacts({ trainingRunId, symbolScope, windowDays, qualitySummary, expertEvaluations, suggestedWeights, driftSummary }) {
   await pool.query(
     `
       INSERT INTO expert_evaluation_reports (training_run_id, window_days, summary, created_at)
       VALUES ($1, $2, $3::jsonb, NOW())
     `,
-    [trainingRun.id, trainingRun.windowDays, JSON.stringify({ experts: expertEvaluations, suggestedWeights })],
+    [trainingRunId, windowDays, JSON.stringify({ experts: expertEvaluations, suggestedWeights })],
   );
 
   await pool.query(
@@ -460,7 +557,7 @@ async function persistTrainingArtifacts({ label, objective, symbolScope, windowD
       INSERT INTO model_quality_reports (training_run_id, window_days, quality_status, summary, created_at)
       VALUES ($1, $2, $3, $4::jsonb, NOW())
     `,
-    [trainingRun.id, trainingRun.windowDays, String(qualitySummary.qualityStatus || 'warning'), JSON.stringify(qualitySummary)],
+    [trainingRunId, windowDays, String(qualitySummary.qualityStatus || 'warning'), JSON.stringify(qualitySummary)],
   );
 
   await pool.query(
@@ -468,10 +565,8 @@ async function persistTrainingArtifacts({ label, objective, symbolScope, windowD
       INSERT INTO model_drift_reports (training_run_id, symbol_scope, drift_level, summary, created_at)
       VALUES ($1, $2::jsonb, $3, $4::jsonb, NOW())
     `,
-    [trainingRun.id, JSON.stringify(symbolScope || []), String(driftSummary.driftLevel || 'low'), JSON.stringify(driftSummary)],
+    [trainingRunId, JSON.stringify(symbolScope || []), String(driftSummary.driftLevel || 'low'), JSON.stringify(driftSummary)],
   );
-
-  return trainingRun;
 }
 
 async function deriveTrainingInsight({ windowDays = 14, symbolScope = null } = {}) {
@@ -501,6 +596,10 @@ async function deriveTrainingInsight({ windowDays = 14, symbolScope = null } = {
     expertEvaluations,
     suggestedWeights,
     driftSummary,
+    stats: {
+      decisionsAnalyzed: decisionRows.length,
+      driftRowsAnalyzed: driftRows.length,
+    },
   };
 }
 
@@ -512,79 +611,204 @@ async function runTrainingAssistance({
   requestedBy = 'dashboard',
   applySuggestedWeights = false,
 } = {}) {
-  const insight = await deriveTrainingInsight({ windowDays, symbolScope });
-  const activeConfigRow = await getActiveConfig();
-  const trainingConfig = activeConfigRow?.config?.training || {};
+  const normalizedScope = normalizeArray(symbolScope);
+  const requestedWindow = Math.max(1, Math.min(Number(windowDays || 14), 180));
+  const run = await createTrainingRun({
+    label,
+    objective,
+    symbolScope: normalizedScope,
+    windowDays: requestedWindow,
+    requestedBy,
+    applySuggestedWeights,
+  });
 
-  let appliedConfigVersion = null;
-  if (applySuggestedWeights) {
-    const minQualityScoreForApply = toNumber(trainingConfig.minQualityScoreForApply, 0.56);
-    const allowHighDriftApply = Boolean(trainingConfig.maxHighDriftForApply);
+  try {
+    await appendTrainingRunLog({
+      trainingRunId: run.id,
+      level: 'info',
+      stepKey: 'start',
+      message: 'Treinamento assistido iniciado.',
+      payload: { label, objective, windowDays: requestedWindow, requestedBy, applySuggestedWeights, symbolScope: normalizedScope },
+    });
 
-    if (!Boolean(trainingConfig.allowSuggestedWeightsApply ?? true)) {
-      throw new Error('training_apply_disabled_in_config');
-    }
+    const insight = await deriveTrainingInsight({ windowDays: requestedWindow, symbolScope: normalizedScope });
+    const activeConfigRow = await getActiveConfig();
+    const trainingConfig = activeConfigRow?.config?.training || {};
 
-    if (toNumber(insight.qualitySummary.qualityScore, 0) < minQualityScoreForApply) {
-      throw new Error(`training_quality_score_too_low:${insight.qualitySummary.qualityScore}`);
-    }
-
-    if (!allowHighDriftApply && String(insight.driftSummary.driftLevel || '').toLowerCase() === 'high') {
-      throw new Error('training_apply_blocked_by_high_drift');
-    }
-
-    const nextConfig = deepMerge(activeConfigRow?.config || {}, {
-      ai: {
-        expertWeights: insight.suggestedWeights,
+    await appendTrainingRunLog({
+      trainingRunId: run.id,
+      level: 'info',
+      stepKey: 'input_window',
+      message: 'Janela de avaliação carregada.',
+      payload: {
+        configVersion: insight.configVersion,
+        symbols: insight.symbols,
+        interval: insight.interval,
+        decisionsAnalyzed: insight.stats.decisionsAnalyzed,
+        driftRowsAnalyzed: insight.stats.driftRowsAnalyzed,
       },
     });
 
-    const updated = await updateActiveConfig(nextConfig, {
-      actionType: 'training_weights_applied',
-      actor: requestedBy,
-      sourceType: 'training_run',
-      reason: 'Aplicação assistida de pesos sugeridos pelos experts.',
-      metadata: {
-        label,
-        objective,
-        windowDays: insight.windowDays,
-        symbols: insight.symbols,
-        qualityScore: insight.qualitySummary.qualityScore,
+    await appendTrainingRunLog({
+      trainingRunId: run.id,
+      level: 'info',
+      stepKey: 'quality_analysis',
+      message: 'Métricas de qualidade calculadas.',
+      payload: insight.qualitySummary,
+    });
+
+    await appendTrainingRunLog({
+      trainingRunId: run.id,
+      level: 'info',
+      stepKey: 'expert_analysis',
+      message: 'Avaliação dos experts concluída.',
+      payload: {
+        topExperts: insight.expertEvaluations.slice(0, 5),
+        suggestedWeights: insight.suggestedWeights,
+      },
+    });
+
+    await appendTrainingRunLog({
+      trainingRunId: run.id,
+      level: insight.driftSummary.driftLevel === 'high' ? 'warning' : 'info',
+      stepKey: 'drift_analysis',
+      message: 'Drift de mercado analisado.',
+      payload: insight.driftSummary,
+    });
+
+    let appliedConfigVersion = null;
+    if (applySuggestedWeights) {
+      const minQualityScoreForApply = toNumber(trainingConfig.minQualityScoreForApply, 0.56);
+      const allowHighDriftApply = Boolean(trainingConfig.maxHighDriftForApply);
+
+      await appendTrainingRunLog({
+        trainingRunId: run.id,
+        level: 'info',
+        stepKey: 'apply_validation',
+        message: 'Validando aplicação automática dos pesos sugeridos.',
+        payload: {
+          minQualityScoreForApply,
+          allowHighDriftApply,
+          qualityScore: insight.qualitySummary.qualityScore,
+          driftLevel: insight.driftSummary.driftLevel,
+        },
+      });
+
+      if (!Boolean(trainingConfig.allowSuggestedWeightsApply ?? true)) {
+        throw new Error('training_apply_disabled_in_config');
+      }
+
+      if (toNumber(insight.qualitySummary.qualityScore, 0) < minQualityScoreForApply) {
+        throw new Error(`training_quality_score_too_low:${insight.qualitySummary.qualityScore}`);
+      }
+
+      if (!allowHighDriftApply && String(insight.driftSummary.driftLevel || '').toLowerCase() === 'high') {
+        throw new Error('training_apply_blocked_by_high_drift');
+      }
+
+      const nextConfig = deepMerge(activeConfigRow?.config || {}, {
+        ai: {
+          expertWeights: insight.suggestedWeights,
+        },
+      });
+
+      const updated = await updateActiveConfig(nextConfig, {
+        actionType: 'training_weights_applied',
+        actor: requestedBy,
+        sourceType: 'training_run',
+        reason: 'Aplicação assistida de pesos sugeridos pelos experts.',
+        metadata: {
+          label,
+          objective,
+          windowDays: insight.windowDays,
+          symbols: insight.symbols,
+          qualityScore: insight.qualitySummary.qualityScore,
+          driftLevel: insight.driftSummary.driftLevel,
+        },
+      });
+
+      appliedConfigVersion = Number(updated?.version || 0);
+      await appendTrainingRunLog({
+        trainingRunId: run.id,
+        level: 'info',
+        stepKey: 'weights_applied',
+        message: 'Pesos sugeridos aplicados na configuração ativa.',
+        payload: {
+          appliedConfigVersion,
+          expertWeights: insight.suggestedWeights,
+        },
+      });
+    } else {
+      await appendTrainingRunLog({
+        trainingRunId: run.id,
+        level: 'info',
+        stepKey: 'weights_not_applied',
+        message: 'Run executado apenas para análise. Nenhuma alteração foi aplicada na configuração.',
+        payload: {
+          expertWeights: insight.suggestedWeights,
+        },
+      });
+    }
+
+    await persistTrainingArtifacts({
+      trainingRunId: run.id,
+      symbolScope: insight.symbols,
+      windowDays: insight.windowDays,
+      qualitySummary: insight.qualitySummary,
+      expertEvaluations: insight.expertEvaluations,
+      suggestedWeights: insight.suggestedWeights,
+      driftSummary: insight.driftSummary,
+    });
+
+    const finalizedRun = await finalizeTrainingRunSuccess({
+      trainingRunId: run.id,
+      qualitySummary: insight.qualitySummary,
+      expertEvaluations: insight.expertEvaluations,
+      suggestedWeights: insight.suggestedWeights,
+      driftSummary: insight.driftSummary,
+      appliedConfigVersion,
+    });
+
+    await appendTrainingRunLog({
+      trainingRunId: run.id,
+      level: 'info',
+      stepKey: 'completed',
+      message: 'Treinamento assistido concluído com sucesso.',
+      payload: {
+        trainingRunId: run.id,
+        appliedConfigVersion,
+        qualityStatus: insight.qualitySummary.qualityStatus,
         driftLevel: insight.driftSummary.driftLevel,
       },
     });
 
-    appliedConfigVersion = Number(updated?.version || 0);
-  }
-
-  const run = await persistTrainingArtifacts({
-    label,
-    objective,
-    symbolScope: insight.symbols,
-    windowDays: insight.windowDays,
-    qualitySummary: insight.qualitySummary,
-    expertEvaluations: insight.expertEvaluations,
-    suggestedWeights: insight.suggestedWeights,
-    driftSummary: insight.driftSummary,
-    requestedBy,
-    appliedConfigVersion,
-    applySuggestedWeights,
-  });
-
-  return {
-    ...run,
-    summary: {
-      quality: insight.qualitySummary,
-      experts: insight.expertEvaluations,
-      drift: insight.driftSummary,
-    },
-    suggestedConfigOverride: {
-      ai: {
-        expertWeights: insight.suggestedWeights,
+    return {
+      ...finalizedRun,
+      summary: {
+        quality: insight.qualitySummary,
+        experts: insight.expertEvaluations,
+        drift: insight.driftSummary,
       },
-    },
-    appliedConfigVersion,
-  };
+      suggestedConfigOverride: {
+        ai: {
+          expertWeights: insight.suggestedWeights,
+        },
+      },
+      appliedConfigVersion,
+    };
+  } catch (error) {
+    await appendTrainingRunLog({
+      trainingRunId: run.id,
+      level: 'error',
+      stepKey: 'failed',
+      message: 'Treinamento assistido falhou.',
+      payload: {
+        error: error.message,
+      },
+    });
+    await finalizeTrainingRunFailure({ trainingRunId: run.id, errorMessage: error.message });
+    throw error;
+  }
 }
 
 async function listTrainingRuns({ limit = 10 } = {}) {
@@ -602,12 +826,36 @@ async function listTrainingRuns({ limit = 10 } = {}) {
         requested_by AS "requestedBy",
         apply_suggested_weights AS "applySuggestedWeights",
         applied_config_version AS "appliedConfigVersion",
+        started_at AS "startedAt",
+        finished_at AS "finishedAt",
         created_at AS "createdAt"
       FROM training_runs
       ORDER BY created_at DESC, id DESC
       LIMIT $1
     `,
     [Math.max(1, Math.min(Number(limit || 10), 100))],
+  );
+
+  return result.rows;
+}
+
+async function listTrainingRunLogs({ limit = 80, trainingRunId = null } = {}) {
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        training_run_id AS "trainingRunId",
+        level,
+        step_key AS "stepKey",
+        message,
+        payload,
+        created_at AS "createdAt"
+      FROM training_run_logs
+      WHERE ($1::bigint IS NULL OR training_run_id = $1)
+      ORDER BY created_at DESC, id DESC
+      LIMIT $2
+    `,
+    [trainingRunId ? Number(trainingRunId) : null, Math.max(1, Math.min(Number(limit || 80), 500))],
   );
 
   return result.rows;
@@ -673,12 +921,13 @@ async function listModelDriftReports({ limit = 10 } = {}) {
 }
 
 async function getTrainingSummary() {
-  const [liveInsight, recentRuns, qualityReports, driftReports, expertReports] = await Promise.all([
+  const [liveInsight, recentRuns, qualityReports, driftReports, expertReports, recentLogs] = await Promise.all([
     deriveTrainingInsight({}),
     listTrainingRuns({ limit: 5 }),
     listModelQualityReports({ limit: 5 }),
     listModelDriftReports({ limit: 5 }),
     listExpertEvaluationReports({ limit: 5 }),
+    listTrainingRunLogs({ limit: 25 }),
   ]);
 
   return {
@@ -691,6 +940,7 @@ async function getTrainingSummary() {
     recentQualityReports: qualityReports,
     recentDriftReports: driftReports,
     recentExpertEvaluations: expertReports,
+    recentLogs,
   };
 }
 
@@ -698,6 +948,7 @@ module.exports = {
   deriveTrainingInsight,
   runTrainingAssistance,
   listTrainingRuns,
+  listTrainingRunLogs,
   listExpertEvaluationReports,
   listModelQualityReports,
   listModelDriftReports,

@@ -50,6 +50,7 @@ import {
   runRecoveryAction,
   fetchTrainingSummary,
   fetchTrainingRuns,
+  fetchTrainingLogs,
   fetchTrainingQualityReports,
   fetchTrainingDriftReports,
   fetchTrainingExpertReports,
@@ -542,6 +543,7 @@ export default function App() {
     recoveryActions: [],
     trainingSummary: null,
     trainingRuns: [],
+    trainingLogs: [],
     trainingQualityReports: [],
     trainingDriftReports: [],
     trainingExpertReports: [],
@@ -580,6 +582,7 @@ export default function App() {
     applySuggestedWeights: false,
   });
   const [trainingLoading, setTrainingLoading] = useState(false);
+  const [selectedTrainingRunId, setSelectedTrainingRunId] = useState('');
 
   const loadEverything = async () => {
     setError('');
@@ -606,6 +609,7 @@ export default function App() {
         recoveryActionsData,
         trainingSummaryData,
         trainingRunsData,
+        trainingLogsData,
         trainingQualityReportsData,
         trainingDriftReportsData,
         trainingExpertReportsData,
@@ -631,6 +635,7 @@ export default function App() {
         fetchRecoveryActions(10),
         fetchTrainingSummary(),
         fetchTrainingRuns(10),
+        fetchTrainingLogs(100),
         fetchTrainingQualityReports(10),
         fetchTrainingDriftReports(10),
         fetchTrainingExpertReports(10),
@@ -659,6 +664,7 @@ export default function App() {
         recoveryActions: recoveryActionsData.items || [],
         trainingSummary: trainingSummaryData,
         trainingRuns: trainingRunsData.items || [],
+        trainingLogs: trainingLogsData.items || [],
         trainingQualityReports: trainingQualityReportsData.items || [],
         trainingDriftReports: trainingDriftReportsData.items || [],
         trainingExpertReports: trainingExpertReportsData.items || [],
@@ -685,6 +691,14 @@ export default function App() {
     }));
   }, [draftConfig]);
 
+
+  useEffect(() => {
+    if (selectedTrainingRunId) return;
+    const candidate = status.training?.latestRun?.id || auxData.trainingRuns?.[0]?.id || '';
+    if (candidate) {
+      setSelectedTrainingRunId(String(candidate));
+    }
+  }, [auxData.trainingRuns, selectedTrainingRunId, status.training]);
 
   useEffect(() => {
     if (!draftConfig) return;
@@ -758,6 +772,8 @@ export default function App() {
   const recentTrainingQualityReports = status.training?.recentQualityReports?.length ? status.training.recentQualityReports : auxData.trainingQualityReports;
   const recentTrainingDriftReports = status.training?.recentDriftReports?.length ? status.training.recentDriftReports : auxData.trainingDriftReports;
   const recentTrainingExpertReports = status.training?.recentExpertEvaluations?.length ? status.training.recentExpertEvaluations : auxData.trainingExpertReports;
+  const trainingLogs = (auxData.trainingLogs || []).filter((item) => (!selectedTrainingRunId ? true : String(item.trainingRunId) === String(selectedTrainingRunId)));
+  const selectedTrainingRun = recentTrainingRuns?.find((item) => String(item.id) === String(selectedTrainingRunId)) || null;
 
   const summaryCards = useMemo(() => {
     const portfolio = currentPortfolio || { baseCurrency: 'USDT' };
@@ -1186,6 +1202,7 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
         applySuggestedWeights: Boolean(trainingForm.applySuggestedWeights),
         requestedBy: 'dashboard',
       });
+      setSelectedTrainingRunId(String(result.id));
       setSaveMessage(`Treinamento assistido concluído. Execução #${result.id}.`);
       await loadEverything();
     } catch (requestError) {
@@ -2228,6 +2245,60 @@ const handleRunRecoveryAction = async (runbookKey, actionKey) => {
                 {recentTrainingExpertReports?.slice(0, 2).map((item) => (
                   <div key={`expert-${item.id}`} className="muted">Experts #{item.id}: janela {item.windowDays}d • {formatDateTime(item.createdAt)}</div>
                 ))}
+              </div>
+            </div>
+
+            <div className="grid two-columns">
+              <div className="list-stack compact-scroll">
+                <div className="decision-card__row">
+                  <strong>Logs do treinamento</strong>
+                  <div className="button-row">
+                    <select value={selectedTrainingRunId} onChange={(event) => setSelectedTrainingRunId(event.target.value)}>
+                      <option value="">Últimas execuções</option>
+                      {recentTrainingRuns?.map((item) => (
+                        <option key={item.id} value={String(item.id)}>
+                          #{item.id} • {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="muted">
+                  {selectedTrainingRun ? `Mostrando logs da execução #${selectedTrainingRun.id} • ${selectedTrainingRun.label}` : 'Mostrando os logs mais recentes de treinamento.'}
+                </div>
+                {trainingLogs?.length ? trainingLogs.slice(0, 30).map((item) => (
+                  <div key={`training-log-${item.id}`} className="list-item list-item--column">
+                    <div className="decision-card__row">
+                      <strong>{item.message}</strong>
+                      <Pill tone={item.level === 'error' ? 'high' : item.level === 'warning' ? 'warning' : 'info'}>{item.level}</Pill>
+                    </div>
+                    <div className="muted">
+                      {formatDateTime(item.createdAt)} • execução #{item.trainingRunId} • etapa: {item.stepKey}
+                    </div>
+                    {Object.keys(item.payload || {}).length ? (
+                      <div className="muted">{JSON.stringify(item.payload)}</div>
+                    ) : null}
+                  </div>
+                )) : <div className="muted">Nenhum log de treinamento disponível ainda.</div>}
+              </div>
+
+              <div className="list-stack compact-scroll">
+                <strong>Resumo da execução selecionada</strong>
+                {selectedTrainingRun ? (
+                  <div className="list-item list-item--column">
+                    <div className="decision-card__row">
+                      <strong>#{selectedTrainingRun.id} • {selectedTrainingRun.label}</strong>
+                      <Pill tone={selectedTrainingRun.status === 'completed' ? 'buy' : selectedTrainingRun.status === 'running' ? 'warning' : 'high'}>{selectedTrainingRun.status}</Pill>
+                    </div>
+                    <div className="muted">Criado em {formatDateTime(selectedTrainingRun.createdAt)} • janela {selectedTrainingRun.windowDays}d</div>
+                    <div className="muted">Início: {formatDateTime(selectedTrainingRun.startedAt)} • fim: {formatDateTime(selectedTrainingRun.finishedAt)}</div>
+                    <div className="muted">Pesos sugeridos aplicados: {selectedTrainingRun.applySuggestedWeights ? 'sim' : 'não'}</div>
+                    <div className="muted">Versão aplicada: {selectedTrainingRun.appliedConfigVersion || '—'}</div>
+                    <div className="muted">Símbolos: {formatList(selectedTrainingRun.symbolScope || [])}</div>
+                  </div>
+                ) : (
+                  <div className="muted">Selecione uma execução para ver o contexto resumido.</div>
+                )}
               </div>
             </div>
           </Section>

@@ -792,6 +792,28 @@ await pool.query(`
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS training_run_logs (
+      id BIGSERIAL PRIMARY KEY,
+      training_run_id BIGINT REFERENCES training_runs(id) ON DELETE CASCADE,
+      level TEXT NOT NULL DEFAULT 'info',
+      step_key TEXT NOT NULL DEFAULT 'info',
+      message TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_training_run_logs_created_at
+    ON training_run_logs (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_training_run_logs_run_id
+    ON training_run_logs (training_run_id, created_at DESC);
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS expert_evaluation_reports (
       id BIGSERIAL PRIMARY KEY,
       training_run_id BIGINT REFERENCES training_runs(id) ON DELETE SET NULL,

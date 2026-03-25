@@ -369,6 +369,15 @@ export function fetchTrainingRuns(limit = 10) {
   return request(`/api/training/runs?limit=${limit}`);
 }
 
+export function fetchTrainingLogs(limit = 80, trainingRunId = '') {
+  const suffix = trainingRunId ? `&trainingRunId=${encodeURIComponent(trainingRunId)}` : '';
+  return request(`/api/training/logs?limit=${limit}${suffix}`);
+}
+
+export function fetchTrainingRunLogs(trainingRunId, limit = 80) {
+  return request(`/api/training/runs/${encodeURIComponent(trainingRunId)}/logs?limit=${limit}`);
+}
+
 export function fetchTrainingQualityReports(limit = 10) {
   return request(`/api/training/quality-reports?limit=${limit}`);
 }

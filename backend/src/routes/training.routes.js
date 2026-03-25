@@ -1,8 +1,8 @@
-
 const express = require('express');
 const {
   getTrainingSummary,
   listTrainingRuns,
+  listTrainingRunLogs,
   listExpertEvaluationReports,
   listModelQualityReports,
   listModelDriftReports,
@@ -20,10 +20,32 @@ router.get('/summary', async (_request, response, next) => {
   }
 });
 
+router.get('/logs', async (request, response, next) => {
+  try {
+    const limit = Number(request.query.limit || 80);
+    const trainingRunId = request.query.trainingRunId ? Number(request.query.trainingRunId) : null;
+    const items = await listTrainingRunLogs({ limit, trainingRunId });
+    response.json({ count: items.length, items });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/runs', async (request, response, next) => {
   try {
     const limit = Number(request.query.limit || 10);
     const items = await listTrainingRuns({ limit });
+    response.json({ count: items.length, items });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/runs/:id/logs', async (request, response, next) => {
+  try {
+    const limit = Number(request.query.limit || 80);
+    const trainingRunId = Number(request.params.id);
+    const items = await listTrainingRunLogs({ limit, trainingRunId });
     response.json({ count: items.length, items });
   } catch (error) {
     next(error);
