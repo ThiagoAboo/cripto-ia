@@ -14,6 +14,9 @@ const controlRoutes = require('./routes/control.routes');
 const backtestsRoutes = require('./routes/backtests.routes');
 const optimizerRoutes = require('./routes/optimizer.routes');
 const promotionsRoutes = require('./routes/promotions.routes');
+const alertsRoutes = require('./routes/alerts.routes');
+const readinessRoutes = require('./routes/readiness.routes');
+const jobsRoutes = require('./routes/jobs.routes');
 
 const app = express();
 
@@ -23,7 +26,7 @@ app.use(express.json({ limit: '1mb' }));
 app.get('/', (_request, response) => {
   response.json({
     service: 'cripto-ia-backend',
-    version: '1.12.0',
+    version: '1.14.0',
     timestamp: new Date().toISOString(),
   });
 });
@@ -40,6 +43,9 @@ app.use('/api/control', controlRoutes);
 app.use('/api/backtests', backtestsRoutes);
 app.use('/api/optimizer', optimizerRoutes);
 app.use('/api/promotions', promotionsRoutes);
+app.use('/api/alerts', alertsRoutes);
+app.use('/api/readiness', readinessRoutes);
+app.use('/api/jobs', jobsRoutes);
 app.use('/internal', internalRoutes);
 
 app.use((error, _request, response, _next) => {

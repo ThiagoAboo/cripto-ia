@@ -8,6 +8,9 @@ const { getRuntimeControl, listCooldowns, getRiskGuardrailSummary } = require('.
 const { listBacktestRuns } = require('./backtest.service');
 const { listOptimizationRuns } = require('./optimizer.service');
 const { listPromotions, listPromotionRequests } = require('./promotion.service');
+const { listActiveAlerts } = require('./alerts.service');
+const { getLatestReadinessReport, listReadinessReports } = require('./readiness.service');
+const { listScheduledJobRuns } = require('./scheduler.service');
 
 async function getSystemStatus() {
   const [
@@ -31,6 +34,10 @@ async function getSystemStatus() {
     guardrails,
     recentBacktests,
     recentOptimizations,
+    activeAlerts,
+    latestReadiness,
+    recentReadinessReports,
+    recentJobRuns,
   ] = await Promise.all([
     getActiveConfig(),
     getConfigHistory({ limit: 5 }),
@@ -81,6 +88,10 @@ async function getSystemStatus() {
     getRiskGuardrailSummary(),
     listBacktestRuns({ limit: 5 }),
     listOptimizationRuns({ limit: 5 }),
+    listActiveAlerts({ limit: 20, status: 'open' }),
+    getLatestReadinessReport(),
+    listReadinessReports({ limit: 5 }),
+    listScheduledJobRuns({ limit: 10 }),
   ]);
 
   return {
@@ -126,6 +137,10 @@ async function getSystemStatus() {
     },
     recentBacktests,
     recentOptimizations,
+    activeAlerts,
+    latestReadiness,
+    recentReadinessReports,
+    recentJobRuns,
     timestamp: new Date().toISOString(),
   };
 }

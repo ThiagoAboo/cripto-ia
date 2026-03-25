@@ -695,6 +695,65 @@ await pool.query(`
     ON backtest_equity_points (run_id, point_time ASC);
   `);
 
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scheduled_job_runs (
+      id BIGSERIAL PRIMARY KEY,
+      job_key TEXT NOT NULL,
+      trigger_source TEXT NOT NULL DEFAULT 'scheduler',
+      requested_by TEXT NOT NULL DEFAULT 'system',
+      status TEXT NOT NULL DEFAULT 'running',
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      finished_at TIMESTAMPTZ
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_scheduled_job_runs_job_key
+    ON scheduled_job_runs (job_key, started_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS active_alerts (
+      alert_key TEXT PRIMARY KEY,
+      severity TEXT NOT NULL DEFAULT 'warning',
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'system',
+      status TEXT NOT NULL DEFAULT 'active',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      acknowledged_at TIMESTAMPTZ,
+      acknowledged_by TEXT,
+      resolved_at TIMESTAMPTZ,
+      resolved_by TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_active_alerts_status
+    ON active_alerts (status, severity, updated_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS readiness_reports (
+      id BIGSERIAL PRIMARY KEY,
+      requested_by TEXT NOT NULL DEFAULT 'system',
+      trigger_source TEXT NOT NULL DEFAULT 'manual',
+      status TEXT NOT NULL,
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_readiness_reports_created_at
+    ON readiness_reports (created_at DESC);
+  `);
+
   await pool.query(
     `
       INSERT INTO bot_configs (config_key, version, config)

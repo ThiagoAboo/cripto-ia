@@ -11,6 +11,10 @@ import {
   fetchHealth,
   runExecutionHealthcheck,
   runExecutionReconciliation,
+  runReadinessCheck,
+  runScheduledJob,
+  acknowledgeAlert,
+  resolveAlert,
   previewExecutionOrder,
   submitLiveOrder,
   fetchOrders,
@@ -162,6 +166,10 @@ const DEFAULT_STATUS = {
   portfolio: { baseCurrency: 'USDT', positions: [] },
   execution: { mode: 'paper', dryRun: true, capabilities: {}, recentLiveAttempts: [], recentActionLogs: [], latestHealthCheck: null, recentHealthChecks: [], recentReconciliations: [] },
   social: { topScores: [], recentAlerts: [], providers: [], attribution: {} },
+  activeAlerts: [],
+  latestReadiness: null,
+  recentReadinessReports: [],
+  recentJobRuns: [],
   control: { isPaused: false, emergencyStop: false, activeCooldowns: [], guardrails: {} },
   configHistory: [],
   recentBacktests: [],
@@ -281,6 +289,7 @@ export default function App() {
   const [promotionLoading, setPromotionLoading] = useState('');
   const [promotionSimulation, setPromotionSimulation] = useState(null);
   const [executionActionLoading, setExecutionActionLoading] = useState('');
+  const [opsActionLoading, setOpsActionLoading] = useState('');
   const [executionPreview, setExecutionPreview] = useState(null);
   const [executionForm, setExecutionForm] = useState({
     symbol: 'BTCUSDT',
@@ -419,6 +428,10 @@ export default function App() {
   const recentApprovalRequests = status.recentApprovalRequests?.length ? status.recentApprovalRequests : auxData.approvalRequests;
   const recentBacktests = status.recentBacktests?.length ? status.recentBacktests : auxData.backtests;
   const recentOptimizations = status.recentOptimizations?.length ? status.recentOptimizations : auxData.optimizations;
+  const activeAlerts = status.activeAlerts || [];
+  const latestReadiness = status.latestReadiness || null;
+  const recentReadinessReports = status.recentReadinessReports || [];
+  const recentJobRuns = status.recentJobRuns || [];
   const execution = status.execution || DEFAULT_STATUS.execution;
 
   const summaryCards = useMemo(() => {
@@ -745,6 +758,21 @@ const handleSubmitLiveOrder = async () => {
   }
 };
 
+
+const handleOpsAction = async (actionName, action, successMessage) => {
+  setOpsActionLoading(actionName);
+  setError('');
+  try {
+    await action();
+    await loadEverything();
+    setSaveMessage(successMessage);
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao executar ação operacional.');
+  } finally {
+    setOpsActionLoading('');
+  }
+};
+
   const providerStatuses = socialSummary?.providers || [];
 
   return (
@@ -755,7 +783,7 @@ const handleSubmitLiveOrder = async () => {
           <h1>Dashboard operacional</h1>
           <p className="hero__subtitle">
             Painel desacoplado dos workers. Nesta etapa, além do REST + SSE, o sistema ganhou promoção
-            controlada, aprovação em duas etapas, rollback assistido, healthchecks de execução, reconciliação supervisionada e agora prévia de ordem, dry-run supervisionado e confirmação explícita para ações live/testnet.
+            controlada, aprovação em duas etapas, rollback assistido, healthchecks de execução, reconciliação supervisionada, prévia de ordem, dry-run supervisionado, confirmação explícita e agora jobs agendados, alertas ativos e readiness checklist para testnet supervisionada.
           </p>
         </div>
         <div className="hero__status-group">
@@ -975,8 +1003,89 @@ const handleSubmitLiveOrder = async () => {
             </div>
           </Section>
 
-          <Section
-            title="Configuração ativa"
+
+<Section
+  title="Readiness e jobs agendados"
+  subtitle="Checklist de prontidão para testnet supervisionada, jobs automáticos e alertas ativos do backend."
+  actions={(
+    <div className="button-row">
+      <button
+        className="button"
+        disabled={opsActionLoading === 'readiness'}
+        onClick={() => handleOpsAction('readiness', () => runReadinessCheck({ requestedBy: 'dashboard' }), 'Checklist de readiness executado.')}
+      >
+        {opsActionLoading === 'readiness' ? 'Executando...' : 'Rodar readiness'}
+      </button>
+      <button
+        className="button button--ghost"
+        disabled={opsActionLoading === 'alert-scan'}
+        onClick={() => handleOpsAction('alert-scan', () => runScheduledJob('alert_scan', { requestedBy: 'dashboard' }), 'Alert scan executado.')}
+      >
+        {opsActionLoading === 'alert-scan' ? 'Escaneando...' : 'Rodar alert scan'}
+      </button>
+    </div>
+  )}
+>
+  <div className="list-stack">
+    <div className="list-item list-item--column">
+      <div>
+        <strong>Checklist atual</strong>
+        <div className="muted">
+          {latestReadiness?.createdAt ? `${formatDateTime(latestReadiness.createdAt)} • ${formatNumber(latestReadiness.summary?.counts?.pass || 0, 0)} pass / ${formatNumber(latestReadiness.summary?.counts?.warn || 0, 0)} warn / ${formatNumber(latestReadiness.summary?.counts?.fail || 0, 0)} fail` : 'Ainda não executado'}
+        </div>
+      </div>
+      <div className="button-row">
+        <Pill tone={latestReadiness?.status === 'ready' ? 'buy' : latestReadiness?.status === 'warning' ? 'warning' : 'high'}>
+          {latestReadiness?.status || 'sem relatório'}
+        </Pill>
+      </div>
+    </div>
+
+    {(latestReadiness?.summary?.checklist || []).slice(0, 6).map((item) => (
+      <div key={item.key} className="list-item list-item--column">
+        <div>
+          <strong>{item.label}</strong>
+          <div className="muted">{item.message}</div>
+        </div>
+        <div className="button-row">
+          <Pill tone={item.status === 'pass' ? 'buy' : item.status === 'warn' ? 'warning' : 'high'}>{item.status}</Pill>
+          {item.critical ? <Pill tone="info">crítico</Pill> : null}
+        </div>
+      </div>
+    ))}
+
+    {(recentJobRuns || []).slice(0, 5).map((item) => (
+      <div key={item.id} className="list-item list-item--column">
+        <div>
+          <strong>{item.jobKey}</strong>
+          <div className="muted">{formatDateTime(item.startedAt)} • origem: {item.triggerSource} • solicitado por: {item.requestedBy}</div>
+        </div>
+        <div className="button-row">
+          <Pill tone={item.status === 'ok' ? 'buy' : item.status === 'error' ? 'high' : 'warning'}>{item.status}</Pill>
+        </div>
+      </div>
+    ))}
+
+    {(activeAlerts || []).slice(0, 5).map((item) => (
+      <div key={item.alertKey} className="list-item list-item--column">
+        <div>
+          <strong>{item.title}</strong>
+          <div className="muted">{item.message}</div>
+          <div className="muted">{item.source} • última atualização {formatDateTime(item.updatedAt)}</div>
+        </div>
+        <div className="button-row">
+          <Pill tone={item.severity === 'critical' || item.severity === 'high' ? 'high' : 'warning'}>{item.severity}</Pill>
+          <Pill tone={item.status === 'acknowledged' ? 'info' : item.status === 'resolved' ? 'buy' : 'warning'}>{item.status}</Pill>
+          <button className="button button--ghost" disabled={opsActionLoading === `ack-${item.alertKey}`} onClick={() => handleOpsAction(`ack-${item.alertKey}`, () => acknowledgeAlert(item.alertKey, { actor: 'dashboard' }), 'Alerta reconhecido.')}>Reconhecer</button>
+          <button className="button button--ghost" disabled={opsActionLoading === `resolve-${item.alertKey}`} onClick={() => handleOpsAction(`resolve-${item.alertKey}`, () => resolveAlert(item.alertKey, { actor: 'dashboard' }), 'Alerta resolvido.')}>Resolver</button>
+        </div>
+      </div>
+    ))}
+  </div>
+</Section>
+
+<Section
+  title="Configuração ativa"
             subtitle={`Versão ${configRow?.version || 0} • Última atualização ${formatDateTime(configRow?.updated_at)}`}
             actions={<button className="button" onClick={handleSaveConfig} disabled={saving || !draftConfig}>{saving ? 'Salvando...' : 'Salvar configuração'}</button>}
           >

@@ -1,4 +1,5 @@
 const express = require('express');
+const env = require('../config/env');
 const { getSystemStatus } = require('../services/status.service');
 const { addClient, removeClient, publishStatusSnapshot } = require('../services/eventBus.service');
 
@@ -30,8 +31,18 @@ router.get('/stream', async (_request, response, next) => {
       response.write('event: ping\ndata: {}\n\n');
     }, 25000);
 
+    const periodicStatus = setInterval(async () => {
+      try {
+        const latest = await getSystemStatus();
+        response.write(`event: status\ndata: ${JSON.stringify(latest)}\n\n`);
+      } catch (_error) {
+        // ignore snapshot fetch errors inside SSE loop
+      }
+    }, Math.max(5, Number(env.health.sseSnapshotIntervalSec || 15)) * 1000);
+
     _request.on('close', () => {
       clearInterval(keepAlive);
+      clearInterval(periodicStatus);
       removeClient(response);
       response.end();
     });

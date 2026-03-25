@@ -34,6 +34,13 @@ module.exports = {
     workerStaleAfterSec: Number(getEnv('WORKER_STALE_AFTER_SEC', 90)),
     sseSnapshotIntervalSec: Number(getEnv('SSE_SNAPSHOT_INTERVAL_SEC', 15)),
   },
+  scheduling: {
+    enabled: getBooleanEnv('SCHEDULER_ENABLED', true),
+    healthcheckIntervalSec: Number(getEnv('SCHEDULER_HEALTHCHECK_INTERVAL_SEC', 300)),
+    reconciliationIntervalSec: Number(getEnv('SCHEDULER_RECONCILIATION_INTERVAL_SEC', 900)),
+    readinessIntervalSec: Number(getEnv('SCHEDULER_READINESS_INTERVAL_SEC', 600)),
+    alertScanIntervalSec: Number(getEnv('SCHEDULER_ALERT_SCAN_INTERVAL_SEC', 120)),
+  },
   execution: {
     liveEnabled: getBooleanEnv('EXECUTION_LIVE_ENABLED', false),
     defaultMode: getEnv('EXECUTION_DEFAULT_MODE', 'paper'),

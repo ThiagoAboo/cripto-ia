@@ -243,3 +243,31 @@ export function submitLiveOrder(payload = {}) {
     body: JSON.stringify(payload),
   });
 }
+
+export function runReadinessCheck(payload = {}) {
+  return request('/api/readiness/run', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function runScheduledJob(jobKey, payload = {}) {
+  return request(`/api/jobs/run/${encodeURIComponent(jobKey)}`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function acknowledgeAlert(alertKey, payload = {}) {
+  return request(`/api/alerts/${encodeURIComponent(alertKey)}/ack`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function resolveAlert(alertKey, payload = {}) {
+  return request(`/api/alerts/${encodeURIComponent(alertKey)}/resolve`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
