@@ -438,3 +438,15 @@ th {
     grid-template-columns: 1fr;
   }
 }
+
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.compact-table th,
+.compact-table td {
+  font-size: 0.84rem;
+}

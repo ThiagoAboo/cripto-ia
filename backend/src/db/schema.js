@@ -95,6 +95,13 @@ const DEFAULT_BOT_CONFIG = {
   frontend: {
     refreshIntervalSec: 5,
   },
+  optimizer: {
+    enabled: true,
+    maxCandidatesPerRun: 8,
+    defaultObjective: 'balanced',
+    objectives: ['balanced', 'return', 'risk_adjusted', 'defensive'],
+    symbols: [],
+  },
   backtest: {
     defaultLimit: 400,
     defaultInterval: '5m',
@@ -446,6 +453,60 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_backtest_runs_created_at
     ON backtest_runs (created_at DESC);
   `);
+
+
+await pool.query(`ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS regime_label TEXT NOT NULL DEFAULT 'mixed';`);
+await pool.query(`ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS performance_score NUMERIC(18, 8) NOT NULL DEFAULT 0;`);
+
+await pool.query(`
+  CREATE INDEX IF NOT EXISTS idx_backtest_runs_symbol_regime_score
+  ON backtest_runs (symbol, regime_label, performance_score DESC, created_at DESC);
+`);
+
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS optimization_runs (
+    id BIGSERIAL PRIMARY KEY,
+    label TEXT NOT NULL,
+    objective TEXT NOT NULL DEFAULT 'balanced',
+    status TEXT NOT NULL DEFAULT 'completed',
+    scope JSONB NOT NULL DEFAULT '{}'::jsonb,
+    summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+`);
+
+await pool.query(`
+  CREATE INDEX IF NOT EXISTS idx_optimization_runs_created_at
+  ON optimization_runs (created_at DESC);
+`);
+
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS optimization_results (
+    id BIGSERIAL PRIMARY KEY,
+    optimization_run_id BIGINT NOT NULL REFERENCES optimization_runs(id) ON DELETE CASCADE,
+    rank INTEGER NOT NULL DEFAULT 0,
+    symbol TEXT NOT NULL,
+    regime_label TEXT NOT NULL DEFAULT 'mixed',
+    objective TEXT NOT NULL DEFAULT 'balanced',
+    score NUMERIC(18, 8) NOT NULL DEFAULT 0,
+    metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+    config_override JSONB NOT NULL DEFAULT '{}'::jsonb,
+    backtest_run_id BIGINT REFERENCES backtest_runs(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+`);
+
+await pool.query(`
+  CREATE INDEX IF NOT EXISTS idx_optimization_results_run_rank
+  ON optimization_results (optimization_run_id, rank ASC);
+`);
+
+await pool.query(`
+  CREATE INDEX IF NOT EXISTS idx_optimization_results_symbol_regime_score
+  ON optimization_results (symbol, regime_label, score DESC, created_at DESC);
+`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS backtest_trades (

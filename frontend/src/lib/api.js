@@ -132,3 +132,19 @@ export function compareBacktests(payload) {
     body: JSON.stringify(payload),
   });
 }
+
+
+export function fetchOptimizations(limit = 10) {
+  return request(`/api/optimizer?limit=${limit}`);
+}
+
+export function fetchOptimizationById(id) {
+  return request(`/api/optimizer/${id}`);
+}
+
+export function runOptimization(payload) {
+  return request('/api/optimizer/run', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

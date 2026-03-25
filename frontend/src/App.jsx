@@ -14,8 +14,10 @@ import {
   fetchSocialScores,
   fetchSocialSummary,
   fetchStatus,
+  fetchOptimizations,
   getApiBaseUrl,
   runBacktest,
+  runOptimization,
   pauseControl,
   resumeControl,
   triggerEmergencyStop,
@@ -37,6 +39,7 @@ const DEFAULT_STATUS = {
   control: { isPaused: false, emergencyStop: false, activeCooldowns: [], guardrails: {} },
   configHistory: [],
   recentBacktests: [],
+  recentOptimizations: [],
   timestamp: null,
 };
 
@@ -89,6 +92,7 @@ export default function App() {
     control: null,
     configHistory: [],
     backtests: [],
+    optimizations: [],
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -99,6 +103,8 @@ export default function App() {
   const [backtestForm, setBacktestForm] = useState({ symbol: 'BTCUSDT', interval: '5m', confirmationInterval: '15m', limit: 400 });
   const [backtestLoading, setBacktestLoading] = useState('');
   const [comparisonResult, setComparisonResult] = useState(null);
+  const [optimizationLoading, setOptimizationLoading] = useState('');
+  const [optimizationResult, setOptimizationResult] = useState(null);
 
   const loadEverything = async () => {
     setError('');
@@ -116,6 +122,7 @@ export default function App() {
         socialSummaryData,
         controlData,
         backtestsData,
+        optimizationsData,
       ] = await Promise.all([
         fetchHealth(),
         fetchConfig(),
@@ -129,6 +136,7 @@ export default function App() {
         fetchSocialSummary(),
         fetchControl(),
         fetchBacktests(10),
+        fetchOptimizations(10),
       ]);
 
       setHealth(healthData);
@@ -145,6 +153,7 @@ export default function App() {
         control: controlData,
         configHistory: configHistoryData.items || [],
         backtests: backtestsData.items || [],
+        optimizations: optimizationsData.items || [],
       });
     } catch (requestError) {
       setError(requestError.message || 'Falha ao carregar dados do painel.');
@@ -202,6 +211,7 @@ export default function App() {
   const controlState = status.control?.updatedAt ? status.control : auxData.control;
   const configHistory = status.configHistory?.length ? status.configHistory : auxData.configHistory;
   const recentBacktests = status.recentBacktests?.length ? status.recentBacktests : auxData.backtests;
+  const recentOptimizations = status.recentOptimizations?.length ? status.recentOptimizations : auxData.optimizations;
   const execution = status.execution || DEFAULT_STATUS.execution;
 
   const summaryCards = useMemo(() => {
@@ -352,6 +362,31 @@ export default function App() {
   const portfolio = currentPortfolio || { baseCurrency: 'USDT', positions: [] };
   const baseCurrency = portfolio.baseCurrency || 'USDT';
   const guardrails = controlState?.guardrails || {};
+
+const handleRunOptimization = async () => {
+  setOptimizationLoading('running');
+  setError('');
+  try {
+    const result = await runOptimization({
+      label: `Calibração ${new Date().toLocaleString('pt-BR')}`,
+      symbols: draftConfig?.trading?.symbols || [backtestForm.symbol],
+      interval: backtestForm.interval,
+      confirmationInterval: backtestForm.confirmationInterval,
+      limit: backtestForm.limit,
+      objective: draftConfig?.optimizer?.defaultObjective || 'balanced',
+      maxCandidates: draftConfig?.optimizer?.maxCandidatesPerRun || 8,
+    });
+    setOptimizationResult(result);
+    setSaveMessage('Calibração concluída e ranking atualizado.');
+    const optimizationsData = await fetchOptimizations(10);
+    setAuxData((current) => ({ ...current, optimizations: optimizationsData.items || current.optimizations }));
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao rodar calibração.');
+  } finally {
+    setOptimizationLoading('');
+  }
+};
+
   const providerStatuses = socialSummary?.providers || [];
 
   return (
@@ -740,6 +775,23 @@ export default function App() {
               <div className="muted">{socialSummary?.attribution?.coingecko || 'Data provided by CoinGecko Demo API when available.'}</div>
             </div>
           </Section>
+
+
+<Section title="Calibrações recentes" subtitle="Runs automáticos com ranking por símbolo e regime.">
+  <div className="list-stack compact-scroll">
+    {recentOptimizations?.length ? recentOptimizations.map((item) => (
+      <div key={item.id} className="list-item list-item--column">
+        <div className="decision-card__row">
+          <strong>{item.label}</strong>
+          <Pill tone="info">{item.objective}</Pill>
+        </div>
+        <div className="muted">{formatDateTime(item.createdAt)}</div>
+        <div className="muted">Melhor score médio: {formatNumber(item.summary?.averageScore || 0, 2)}</div>
+        <div className="muted">Top: {item.summary?.bestOverall?.symbol || '—'} / {item.summary?.bestOverall?.candidateName || '—'}</div>
+      </div>
+    )) : <div className="muted">Sem calibrações recentes.</div>}
+  </div>
+</Section>
 
           <Section title="Histórico de configuração" subtitle="Versões anteriores para auditoria e rollback manual.">
             <div className="list-stack compact-scroll">

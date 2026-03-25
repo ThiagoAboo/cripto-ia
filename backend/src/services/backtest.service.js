@@ -1,3 +1,4 @@
+
 const pool = require('../db/pool');
 const { getActiveConfig } = require('./config.service');
 const { getCandles } = require('./market.service');
@@ -42,6 +43,40 @@ function deepMerge(base, override) {
   });
 
   return result;
+}
+
+function average(values = []) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + Number(value || 0), 0) / values.length;
+}
+
+function stddev(values = []) {
+  if (values.length < 2) return 0;
+  const avg = average(values);
+  const variance = average(values.map((value) => (Number(value || 0) - avg) ** 2));
+  return Math.sqrt(variance);
+}
+
+function inferMarketRegime(primaryCandles = [], confirmationCandles = []) {
+  if (primaryCandles.length < 60) return 'mixed';
+
+  const closes = primaryCandles.map((item) => Number(item.close || 0)).filter((value) => value > 0);
+  const returns = closes.slice(1).map((value, index) => (closes[index] > 0 ? (value - closes[index]) / closes[index] : 0));
+  const start = closes[Math.max(0, closes.length - 60)] || closes[0] || 1;
+  const end = closes[closes.length - 1] || start;
+  const totalReturn = start > 0 ? ((end - start) / start) * 100 : 0;
+  const vol = stddev(returns.slice(-40)) * Math.sqrt(40) * 100;
+
+  const confirmationCloses = confirmationCandles.map((item) => Number(item.close || 0)).filter((value) => value > 0);
+  const confStart = confirmationCloses[Math.max(0, confirmationCloses.length - 30)] || confirmationCloses[0] || 1;
+  const confEnd = confirmationCloses[confirmationCloses.length - 1] || confStart;
+  const confirmationReturn = confStart > 0 ? ((confEnd - confStart) / confStart) * 100 : 0;
+
+  if (vol >= 9) return 'volatile';
+  if (totalReturn >= 5 && confirmationReturn >= 2) return 'trend_bull';
+  if (totalReturn <= -5 && confirmationReturn <= -2) return 'trend_bear';
+  if (Math.abs(totalReturn) <= 3) return 'range';
+  return 'mixed';
 }
 
 function buildBacktestPortfolioState(state, currentPrice) {
@@ -164,6 +199,125 @@ function buildRollingTicker(primarySlice) {
   };
 }
 
+function computeDrawdowns(curve = []) {
+  let peak = 0;
+  return curve.map((point) => {
+    peak = Math.max(peak, Number(point.equity || 0));
+    const drawdownPct = peak > 0 ? (((Number(point.equity || 0) - peak) / peak) * 100) : 0;
+    return { ...point, drawdownPct: roundTo(drawdownPct, 4) };
+  });
+}
+
+function computeTradeStats(sellTrades = []) {
+  const wins = sellTrades.filter((item) => Number(item.realizedPnl || 0) > 0);
+  const losses = sellTrades.filter((item) => Number(item.realizedPnl || 0) < 0);
+  const grossProfit = wins.reduce((sum, item) => sum + Number(item.realizedPnl || 0), 0);
+  const grossLossAbs = Math.abs(losses.reduce((sum, item) => sum + Number(item.realizedPnl || 0), 0));
+  const avgWin = wins.length ? average(wins.map((item) => Number(item.realizedPnl || 0))) : 0;
+  const avgLossAbs = losses.length ? Math.abs(average(losses.map((item) => Number(item.realizedPnl || 0)))) : 0;
+  const winRate = sellTrades.length ? (wins.length / sellTrades.length) : 0;
+  const expectancy = (winRate * avgWin) - ((1 - winRate) * avgLossAbs);
+  const payoffRatio = avgLossAbs > 0 ? avgWin / avgLossAbs : null;
+
+  let consecutiveWins = 0;
+  let consecutiveLosses = 0;
+  let maxConsecutiveWins = 0;
+  let maxConsecutiveLosses = 0;
+  sellTrades.forEach((trade) => {
+    const pnl = Number(trade.realizedPnl || 0);
+    if (pnl > 0) {
+      consecutiveWins += 1;
+      consecutiveLosses = 0;
+    } else if (pnl < 0) {
+      consecutiveLosses += 1;
+      consecutiveWins = 0;
+    } else {
+      consecutiveWins = 0;
+      consecutiveLosses = 0;
+    }
+    maxConsecutiveWins = Math.max(maxConsecutiveWins, consecutiveWins);
+    maxConsecutiveLosses = Math.max(maxConsecutiveLosses, consecutiveLosses);
+  });
+
+  return {
+    grossProfit,
+    grossLossAbs,
+    wins: wins.length,
+    losses: losses.length,
+    avgWin,
+    avgLossAbs,
+    expectancy,
+    payoffRatio,
+    maxConsecutiveWins,
+    maxConsecutiveLosses,
+  };
+}
+
+function computeAdvancedMetrics({ equityCurve = [], sellTrades = [], startingBalance = 0, endingEquity = 0, maxDrawdownPct = 0 }) {
+  const returns = [];
+  for (let index = 1; index < equityCurve.length; index += 1) {
+    const previous = Number(equityCurve[index - 1]?.equity || 0);
+    const current = Number(equityCurve[index]?.equity || 0);
+    returns.push(previous > 0 ? ((current - previous) / previous) : 0);
+  }
+
+  const avgReturn = average(returns);
+  const returnsStd = stddev(returns);
+  const downsideReturns = returns.filter((value) => value < 0);
+  const downsideStd = stddev(downsideReturns);
+  const scale = Math.sqrt(Math.max(returns.length, 1));
+  const sharpeRatio = returnsStd > 0 ? (avgReturn / returnsStd) * scale : 0;
+  const sortinoRatio = downsideStd > 0 ? (avgReturn / downsideStd) * scale : 0;
+  const totalReturnPct = startingBalance > 0 ? ((endingEquity - startingBalance) / startingBalance) * 100 : 0;
+  const calmarRatio = Math.abs(maxDrawdownPct) > 0 ? totalReturnPct / Math.abs(maxDrawdownPct) : 0;
+  const tradeStats = computeTradeStats(sellTrades);
+  const recoveryFactor = Math.abs(maxDrawdownPct) > 0 ? (endingEquity - startingBalance) / (startingBalance * Math.abs(maxDrawdownPct / 100)) : 0;
+
+  return {
+    sharpeRatio: roundTo(sharpeRatio, 4),
+    sortinoRatio: roundTo(sortinoRatio, 4),
+    calmarRatio: roundTo(calmarRatio, 4),
+    expectancy: roundTo(tradeStats.expectancy, 4),
+    avgWin: roundTo(tradeStats.avgWin, 4),
+    avgLossAbs: roundTo(tradeStats.avgLossAbs, 4),
+    payoffRatio: tradeStats.payoffRatio === null ? null : roundTo(tradeStats.payoffRatio, 4),
+    maxConsecutiveWins: tradeStats.maxConsecutiveWins,
+    maxConsecutiveLosses: tradeStats.maxConsecutiveLosses,
+    recoveryFactor: roundTo(recoveryFactor, 4),
+    grossProfit: roundTo(tradeStats.grossProfit, 4),
+    grossLossAbs: roundTo(tradeStats.grossLossAbs, 4),
+    wins: tradeStats.wins,
+    losses: tradeStats.losses,
+  };
+}
+
+function computePerformanceScore(metrics = {}, objective = 'balanced') {
+  const totalReturn = Number(metrics.totalReturnPct || 0);
+  const sharpe = Number(metrics.sharpeRatio || 0);
+  const sortino = Number(metrics.sortinoRatio || 0);
+  const calmar = Number(metrics.calmarRatio || 0);
+  const drawdownPenalty = Math.abs(Number(metrics.maxDrawdownPct || 0));
+  const winRateBonus = Number(metrics.winRatePct || 0) / 10;
+  const outperformance = Number(metrics.outperformancePct || 0);
+  const expectancy = Number(metrics.expectancy || 0);
+  const tradesCount = Number(metrics.tradesCount || 0);
+  const tradePenalty = tradesCount < 3 ? 15 : 0;
+
+  if (objective === 'return') {
+    return roundTo((totalReturn * 1.2) + (outperformance * 0.6) + (winRateBonus * 0.3) - (drawdownPenalty * 0.55) - tradePenalty, 4);
+  }
+
+  if (objective === 'risk_adjusted') {
+    return roundTo((sharpe * 14) + (sortino * 12) + (calmar * 8) + (outperformance * 0.4) - (drawdownPenalty * 0.45) - tradePenalty, 4);
+  }
+
+  if (objective === 'defensive') {
+    return roundTo((sortino * 10) + (expectancy * 0.08) + (winRateBonus * 0.5) - (drawdownPenalty * 0.75) + (Math.min(totalReturn, 25) * 0.4) - tradePenalty, 4);
+  }
+
+  return roundTo((totalReturn * 0.7) + (sharpe * 10) + (sortino * 9) + (outperformance * 0.5) + (expectancy * 0.05) - (drawdownPenalty * 0.55) + (winRateBonus * 0.4) - tradePenalty, 4);
+}
+
 async function persistBacktestRun(client, payload) {
   const insertResult = await client.query(
     `
@@ -179,10 +333,12 @@ async function persistBacktestRun(client, payload) {
         finished_at,
         metrics,
         payload,
+        regime_label,
+        performance_score,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW(), NOW(), $8::jsonb, $9::jsonb, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW(), NOW(), $8::jsonb, $9::jsonb, $10, $11, NOW(), NOW())
       RETURNING id
     `,
     [
@@ -195,6 +351,8 @@ async function persistBacktestRun(client, payload) {
       payload.status,
       JSON.stringify(payload.metrics),
       JSON.stringify(payload.payload || {}),
+      payload.metrics.regimeLabel || 'mixed',
+      Number(payload.metrics.performanceScore || 0),
     ],
   );
 
@@ -266,16 +424,7 @@ async function persistBacktestRun(client, payload) {
   return runId;
 }
 
-async function runSingleBacktest({
-  label,
-  symbol,
-  interval,
-  confirmationInterval,
-  limit,
-  config,
-  persist = true,
-  meta = {},
-}) {
+async function runSingleBacktest({ label, symbol, interval, confirmationInterval, limit, config, persist = true, meta = {} }) {
   const primaryPayload = await getCandles({ symbol, interval, limit, refresh: false });
   const confirmationPayload = await getCandles({ symbol, interval: confirmationInterval, limit, refresh: false });
 
@@ -290,6 +439,7 @@ async function runSingleBacktest({
   const slippagePct = Number(paper.slippagePct || 0.05);
   const enableTrailingStop = Boolean(config?.risk?.enableTrailingStop ?? true);
   const trailingStopAtr = Number(config?.risk?.trailingStopAtr || 1.2);
+  const objective = meta.objective || config?.optimizer?.defaultObjective || 'balanced';
 
   if (primaryCandles.length < minDataPoints + 3) {
     throw new Error(`not_enough_primary_candles_for_backtest:${symbol}:${interval}`);
@@ -298,6 +448,8 @@ async function runSingleBacktest({
   if (confirmationCandles.length < minDataPoints + 3) {
     throw new Error(`not_enough_confirmation_candles_for_backtest:${symbol}:${confirmationInterval}`);
   }
+
+  const regimeLabel = inferMarketRegime(primaryCandles, confirmationCandles);
 
   const state = {
     symbol,
@@ -322,9 +474,7 @@ async function runSingleBacktest({
     const confirmationSlice = confirmationCandles.filter((item) => Number(item.openTime) <= Number(candle.openTime));
     const alignedConfirmation = confirmationSlice.slice(-Math.max(minDataPoints, 120));
 
-    if (alignedConfirmation.length < minDataPoints) {
-      continue;
-    }
+    if (alignedConfirmation.length < minDataPoints) continue;
 
     const settings = { feePct, slippagePct, enableTrailingStop, trailingStopAtr };
     const riskExitTriggered = maybeTriggerRiskExit({ state, candle, nextCandle, settings });
@@ -360,13 +510,7 @@ async function runSingleBacktest({
           if (quantity > 0) {
             state.cash -= requestedNotional;
             state.feesPaid += feeAmount;
-            state.position = createPosition({
-              executionPrice,
-              notional: requestedNotional,
-              quantity,
-              riskPlan: decision.riskPlan,
-              candle: nextCandle,
-            });
+            state.position = createPosition({ executionPrice, notional: requestedNotional, quantity, riskPlan: decision.riskPlan, candle: nextCandle });
             state.trades.push({
               side: 'BUY',
               reason: decision.reason,
@@ -381,11 +525,7 @@ async function runSingleBacktest({
               pnlPct: 0,
               confidence: Number(decision.confidence || 0),
               decisionAction: 'BUY',
-              meta: {
-                blocked: false,
-                experts: decision.experts,
-                riskPlan: decision.riskPlan,
-              },
+              meta: { blocked: false, experts: decision.experts, riskPlan: decision.riskPlan },
             });
           } else {
             state.rejectedSignals += 1;
@@ -430,10 +570,7 @@ async function runSingleBacktest({
   }
 
   const maxDrawdownPct = computeMaxDrawdownPct(state.equityCurve);
-  state.equityCurve = state.equityCurve.map((point) => ({
-    ...point,
-    drawdownPct: roundTo(maxDrawdownPct === 0 ? 0 : ((point.equity - Math.max(...state.equityCurve.filter((candidate) => candidate.time <= point.time).map((candidate) => candidate.equity))) / Math.max(...state.equityCurve.filter((candidate) => candidate.time <= point.time).map((candidate) => candidate.equity))) * 100, 4),
-  }));
+  state.equityCurve = computeDrawdowns(state.equityCurve);
 
   const sellTrades = state.trades.filter((item) => item.side === 'SELL');
   const grossProfit = sellTrades.filter((item) => item.realizedPnl > 0).reduce((sum, item) => sum + item.realizedPnl, 0);
@@ -443,6 +580,14 @@ async function runSingleBacktest({
   const totalReturnPct = state.startingBalance > 0 ? ((endingEquity - state.startingBalance) / state.startingBalance) * 100 : 0;
   const buyHoldReturnPct = primaryCandles.length > 1 ? ((Number(primaryCandles[primaryCandles.length - 1].close) - Number(primaryCandles[minDataPoints].close)) / Number(primaryCandles[minDataPoints].close)) * 100 : 0;
   const avgTradePct = sellTrades.length ? sellTrades.reduce((sum, item) => sum + Number(item.pnlPct || 0), 0) / sellTrades.length : 0;
+
+  const advanced = computeAdvancedMetrics({
+    equityCurve: state.equityCurve,
+    sellTrades,
+    startingBalance: state.startingBalance,
+    endingEquity,
+    maxDrawdownPct,
+  });
 
   const metrics = {
     startingBalance: roundTo(state.startingBalance, 4),
@@ -464,7 +609,10 @@ async function runSingleBacktest({
     buySignals: state.buySignals,
     sellSignals: state.sellSignals,
     candlesProcessed: primaryCandles.length,
+    regimeLabel,
+    ...advanced,
   };
+  metrics.performanceScore = computePerformanceScore(metrics, objective);
 
   const summary = {
     label: label || `Backtest ${symbol} ${interval}`,
@@ -498,10 +646,7 @@ async function runSingleBacktest({
     }
   }
 
-  return {
-    id: runId,
-    ...summary,
-  };
+  return { id: runId, ...summary };
 }
 
 async function runBacktest({ label, symbol, interval, confirmationInterval, limit, configOverride = null, persist = true, meta = {} }) {
@@ -513,9 +658,7 @@ async function runBacktest({ label, symbol, interval, confirmationInterval, limi
   const finalConfirmationInterval = confirmationInterval || finalConfig?.trading?.confirmationTimeframes?.[0] || '15m';
   const finalLimit = Math.min(Math.max(Number(limit || finalConfig?.trading?.lookbackCandles || 300), 150), 1000);
 
-  if (!finalSymbol) {
-    throw new Error('backtest_symbol_required');
-  }
+  if (!finalSymbol) throw new Error('backtest_symbol_required');
 
   return runSingleBacktest({
     label,
@@ -560,28 +703,17 @@ async function compareBacktests({ symbol, interval, confirmationInterval, limit,
     totalReturnPct: roundTo(Number(challenger.metrics.totalReturnPct || 0) - Number(baseline.metrics.totalReturnPct || 0), 4),
     maxDrawdownPct: roundTo(Number(challenger.metrics.maxDrawdownPct || 0) - Number(baseline.metrics.maxDrawdownPct || 0), 4),
     winRatePct: roundTo(Number(challenger.metrics.winRatePct || 0) - Number(baseline.metrics.winRatePct || 0), 4),
-    profitFactor: (challenger.metrics.profitFactor === null || baseline.metrics.profitFactor === null)
-      ? null
-      : roundTo(Number(challenger.metrics.profitFactor || 0) - Number(baseline.metrics.profitFactor || 0), 4),
+    profitFactor: (challenger.metrics.profitFactor === null || baseline.metrics.profitFactor === null) ? null : roundTo(Number(challenger.metrics.profitFactor || 0) - Number(baseline.metrics.profitFactor || 0), 4),
     tradesCount: Number(challenger.metrics.tradesCount || 0) - Number(baseline.metrics.tradesCount || 0),
     outperformancePct: roundTo(Number(challenger.metrics.outperformancePct || 0) - Number(baseline.metrics.outperformancePct || 0), 4),
+    performanceScore: roundTo(Number(challenger.metrics.performanceScore || 0) - Number(baseline.metrics.performanceScore || 0), 4),
+    sharpeRatio: roundTo(Number(challenger.metrics.sharpeRatio || 0) - Number(baseline.metrics.sharpeRatio || 0), 4),
+    sortinoRatio: roundTo(Number(challenger.metrics.sortinoRatio || 0) - Number(baseline.metrics.sortinoRatio || 0), 4),
   };
 
   return {
-    baseline: {
-      id: baseline.id,
-      label: baseline.label,
-      symbol: baseline.symbol,
-      interval: baseline.interval,
-      metrics: baseline.metrics,
-    },
-    challenger: {
-      id: challenger.id,
-      label: challenger.label,
-      symbol: challenger.symbol,
-      interval: challenger.interval,
-      metrics: challenger.metrics,
-    },
+    baseline: { id: baseline.id, label: baseline.label, symbol: baseline.symbol, interval: baseline.interval, metrics: baseline.metrics },
+    challenger: { id: challenger.id, label: challenger.label, symbol: challenger.symbol, interval: challenger.interval, metrics: challenger.metrics },
     delta,
   };
 }
@@ -599,6 +731,8 @@ async function listBacktestRuns({ limit = 20 } = {}) {
         candle_limit AS "candleLimit",
         status,
         metrics,
+        regime_label AS "regimeLabel",
+        performance_score AS "performanceScore",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM backtest_runs
@@ -608,7 +742,7 @@ async function listBacktestRuns({ limit = 20 } = {}) {
     [safeLimit],
   );
 
-  return result.rows;
+  return result.rows.map((row) => ({ ...row, performanceScore: Number(row.performanceScore || 0) }));
 }
 
 async function getBacktestRunById(id) {
@@ -627,6 +761,8 @@ async function getBacktestRunById(id) {
         finished_at AS "finishedAt",
         metrics,
         payload,
+        regime_label AS "regimeLabel",
+        performance_score AS "performanceScore",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM backtest_runs
@@ -683,6 +819,7 @@ async function getBacktestRunById(id) {
 
   return {
     ...run,
+    performanceScore: Number(run.performanceScore || 0),
     trades: tradesResult.rows.map((row) => ({
       ...row,
       confidence: Number(row.confidence || 0),
@@ -709,4 +846,6 @@ module.exports = {
   listBacktestRuns,
   getBacktestRunById,
   deepMerge,
+  inferMarketRegime,
+  computePerformanceScore,
 };

@@ -5,6 +5,7 @@ const { getSocialSummary, getSocialScores, listSocialAlerts } = require('./socia
 const { getExecutionStatus } = require('./executionAdapter.service');
 const { getRuntimeControl, listCooldowns, getRiskGuardrailSummary } = require('./control.service');
 const { listBacktestRuns } = require('./backtest.service');
+const { listOptimizationRuns } = require('./optimizer.service');
 
 async function getSystemStatus() {
   const [
@@ -24,6 +25,7 @@ async function getSystemStatus() {
     cooldowns,
     guardrails,
     recentBacktests,
+    recentOptimizations,
   ] = await Promise.all([
     getActiveConfig(),
     getConfigHistory({ limit: 5 }),
@@ -70,6 +72,7 @@ async function getSystemStatus() {
     listCooldowns({ activeOnly: true, limit: 20 }),
     getRiskGuardrailSummary(),
     listBacktestRuns({ limit: 5 }),
+    listOptimizationRuns({ limit: 5 }),
   ]);
 
   return {
@@ -102,6 +105,7 @@ async function getSystemStatus() {
       recentAlerts: recentSocialAlerts,
     },
     recentBacktests,
+    recentOptimizations,
     timestamp: new Date().toISOString(),
   };
 }
