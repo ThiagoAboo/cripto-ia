@@ -17,6 +17,9 @@ import {
   resolveAlert,
   previewExecutionOrder,
   submitLiveOrder,
+  setMaintenanceMode,
+  clearMaintenanceMode,
+  sendTestNotification,
   fetchOrders,
   fetchPortfolio,
   fetchSocialAlerts,
@@ -170,7 +173,9 @@ const DEFAULT_STATUS = {
   latestReadiness: null,
   recentReadinessReports: [],
   recentJobRuns: [],
-  control: { isPaused: false, emergencyStop: false, activeCooldowns: [], guardrails: {} },
+  notifications: { enabled: false, channels: [], recentDeliveries: [] },
+  policy: { recentReports: [] },
+  control: { isPaused: false, emergencyStop: false, maintenanceMode: false, activeCooldowns: [], guardrails: {} },
   configHistory: [],
   recentBacktests: [],
   recentOptimizations: [],
@@ -291,6 +296,7 @@ export default function App() {
   const [executionActionLoading, setExecutionActionLoading] = useState('');
   const [opsActionLoading, setOpsActionLoading] = useState('');
   const [executionPreview, setExecutionPreview] = useState(null);
+  const [notificationLoading, setNotificationLoading] = useState('');
   const [executionForm, setExecutionForm] = useState({
     symbol: 'BTCUSDT',
     side: 'BUY',
@@ -433,6 +439,8 @@ export default function App() {
   const recentReadinessReports = status.recentReadinessReports || [];
   const recentJobRuns = status.recentJobRuns || [];
   const execution = status.execution || DEFAULT_STATUS.execution;
+  const notifications = status.notifications || DEFAULT_STATUS.notifications;
+  const policyReports = status.policy?.recentReports || [];
 
   const summaryCards = useMemo(() => {
     const portfolio = currentPortfolio || { baseCurrency: 'USDT' };
@@ -459,9 +467,9 @@ export default function App() {
       },
       {
         label: 'Controle do Bot',
-        value: controlState?.emergencyStop ? 'EMERGÊNCIA' : controlState?.isPaused ? 'PAUSADO' : 'ATIVO',
-        hint: controlState?.pauseReason || 'Sem bloqueios globais',
-        tone: controlState?.emergencyStop ? 'danger' : controlState?.isPaused ? 'warning' : 'positive',
+        value: controlState?.emergencyStop ? 'EMERGÊNCIA' : controlState?.maintenanceMode ? 'MAINTENANCE' : controlState?.isPaused ? 'PAUSADO' : 'ATIVO',
+        hint: controlState?.maintenanceMode ? (controlState?.maintenanceReason || 'Maintenance mode ativo') : (controlState?.pauseReason || 'Sem bloqueios globais'),
+        tone: controlState?.emergencyStop ? 'danger' : controlState?.maintenanceMode ? 'warning' : controlState?.isPaused ? 'warning' : 'positive',
       },
       {
         label: 'Cooldowns',
@@ -773,6 +781,39 @@ const handleOpsAction = async (actionName, action, successMessage) => {
   }
 };
 
+  const handleMaintenanceAction = async (enabled) => {
+  setOpsActionLoading(enabled ? 'maintenance-on' : 'maintenance-off');
+  setError('');
+  try {
+    if (enabled) {
+      await setMaintenanceMode({ reason: 'dashboard_maintenance_mode', scope: 'system' });
+      setSaveMessage('Maintenance mode ativado.');
+    } else {
+      await clearMaintenanceMode({ resume: false });
+      setSaveMessage('Maintenance mode desativado.');
+    }
+    await loadEverything();
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao atualizar maintenance mode.');
+  } finally {
+    setOpsActionLoading('');
+  }
+};
+
+const handleSendTestNotification = async (channel = 'all') => {
+  setNotificationLoading(channel);
+  setError('');
+  try {
+    await sendTestNotification({ channel, actor: 'dashboard', message: 'Teste manual enviado pelo painel.' });
+    setSaveMessage('Teste de notificação disparado.');
+    await loadEverything();
+  } catch (requestError) {
+    setError(requestError.message || 'Falha ao enviar notificação de teste.');
+  } finally {
+    setNotificationLoading('');
+  }
+};
+
   const providerStatuses = socialSummary?.providers || [];
 
   return (
@@ -783,7 +824,7 @@ const handleOpsAction = async (actionName, action, successMessage) => {
           <h1>Dashboard operacional</h1>
           <p className="hero__subtitle">
             Painel desacoplado dos workers. Nesta etapa, além do REST + SSE, o sistema ganhou promoção
-            controlada, aprovação em duas etapas, rollback assistido, healthchecks de execução, reconciliação supervisionada, prévia de ordem, dry-run supervisionado, confirmação explícita e agora jobs agendados, alertas ativos e readiness checklist para testnet supervisionada.
+            controlada, aprovação em duas etapas, rollback assistido, healthchecks de execução, reconciliação supervisionada, prévia de ordem, dry-run supervisionado, confirmação explícita e agora jobs agendados, alertas ativos, readiness checklist, policy gates mais fortes, maintenance mode e alertas externos prontos para integração.
           </p>
         </div>
         <div className="hero__status-group">
@@ -828,6 +869,20 @@ const handleOpsAction = async (actionName, action, successMessage) => {
                 >
                   {actionLoading === 'emergency' ? 'Acionando...' : 'Emergency Stop'}
                 </button>
+                <button
+                  className="button button--ghost"
+                  disabled={opsActionLoading === 'maintenance-on'}
+                  onClick={() => handleMaintenanceAction(true)}
+                >
+                  {opsActionLoading === 'maintenance-on' ? 'Ativando...' : 'Maintenance ON'}
+                </button>
+                <button
+                  className="button button--ghost"
+                  disabled={opsActionLoading === 'maintenance-off'}
+                  onClick={() => handleMaintenanceAction(false)}
+                >
+                  {opsActionLoading === 'maintenance-off' ? 'Desativando...' : 'Maintenance OFF'}
+                </button>
               </div>
             )}
           >
@@ -838,10 +893,11 @@ const handleOpsAction = async (actionName, action, successMessage) => {
                   <div className="muted">Atualizado em {formatDateTime(controlState?.updatedAt)}</div>
                 </div>
                 <div className="button-row">
-                  <Pill tone={controlState?.emergencyStop ? 'high' : controlState?.isPaused ? 'warning' : 'buy'}>
-                    {controlState?.emergencyStop ? 'emergência' : controlState?.isPaused ? 'pausado' : 'ativo'}
+                  <Pill tone={controlState?.emergencyStop ? 'high' : controlState?.maintenanceMode ? 'warning' : controlState?.isPaused ? 'warning' : 'buy'}>
+                    {controlState?.emergencyStop ? 'emergência' : controlState?.maintenanceMode ? 'maintenance' : controlState?.isPaused ? 'pausado' : 'ativo'}
                   </Pill>
                   {controlState?.pauseReason ? <span className="muted">Motivo: {controlState.pauseReason}</span> : null}
+                  {controlState?.maintenanceMode ? <span className="muted">Escopo: {controlState.maintenanceScope || 'system'}{controlState?.maintenanceUntil ? ` • até ${formatDateTime(controlState.maintenanceUntil)}` : ''}</span> : null}
                 </div>
               </div>
               <div className="list-item list-item--column">
@@ -1519,6 +1575,56 @@ const handleOpsAction = async (actionName, action, successMessage) => {
                   </div>
                 </div>
               )) : <div className="muted">Sem histórico adicional ainda.</div>}
+            </div>
+          </Section>
+
+
+
+          <Section title="Policy gates e maintenance" subtitle="Promoções e readiness agora respeitam gates mais fortes antes de paper/live review.">
+            <div className="list-stack compact-scroll">
+              <div className="list-item list-item--column">
+                <div className="decision-card__row">
+                  <strong>Maintenance mode</strong>
+                  <Pill tone={controlState?.maintenanceMode ? 'warning' : 'buy'}>{controlState?.maintenanceMode ? 'ativo' : 'desligado'}</Pill>
+                </div>
+                <div className="muted">{controlState?.maintenanceReason || 'Sem maintenance mode ativo.'}</div>
+              </div>
+              {policyReports?.length ? policyReports.map((item) => (
+                <div key={item.id} className="list-item list-item--column">
+                  <div className="decision-card__row">
+                    <strong>{item.gateType}</strong>
+                    <Pill tone={item.status === 'pass' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{item.status}</Pill>
+                  </div>
+                  <div className="muted">Canal: {item.targetChannel || '—'} • {formatDateTime(item.createdAt)}</div>
+                  <div className="muted">Checks: {formatNumber(item.summary?.checks?.length || 0, 0)} • Readiness: {item.summary?.readinessStatus || '—'}</div>
+                </div>
+              )) : <div className="muted">Sem policy gates recentes.</div>}
+            </div>
+          </Section>
+
+          <Section title="Alertas externos" subtitle="Webhook, Telegram e email-ready ficam prontos para integração e teste manual.">
+            <div className="list-stack compact-scroll">
+              {(notifications.channels || []).length ? notifications.channels.map((channel) => (
+                <div key={channel.key} className="list-item list-item--column">
+                  <div className="decision-card__row">
+                    <strong>{channel.key}</strong>
+                    <Pill tone={channel.ready ? 'buy' : channel.configured ? 'warning' : 'info'}>{channel.ready ? 'ready' : channel.configured ? 'parcial' : 'desligado'}</Pill>
+                  </div>
+                  <div className="muted">Destino: {channel.destination || 'não configurado'}</div>
+                  <div className="button-row">
+                    <button className="button button--ghost" disabled={notificationLoading === channel.key || (!channel.ready && channel.key !== 'email_ready')} onClick={() => handleSendTestNotification(channel.key)}>{notificationLoading === channel.key ? 'Enviando...' : 'Testar canal'}</button>
+                  </div>
+                </div>
+              )) : <div className="muted">Sem canais de alerta configurados.</div>}
+              {(notifications.recentDeliveries || []).length ? notifications.recentDeliveries.slice(0, 5).map((item) => (
+                <div key={item.id} className="list-item list-item--column">
+                  <div className="decision-card__row">
+                    <strong>{item.channel}</strong>
+                    <Pill tone={item.status === 'sent' ? 'buy' : item.status === 'prepared' ? 'warning' : 'high'}>{item.status}</Pill>
+                  </div>
+                  <div className="muted">{item.eventType} • {formatDateTime(item.createdAt)}</div>
+                </div>
+              )) : null}
             </div>
           </Section>
 

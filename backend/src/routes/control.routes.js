@@ -7,6 +7,8 @@ const {
   listCooldowns,
   clearCooldown,
   getRiskGuardrailSummary,
+  setMaintenanceMode,
+  clearMaintenanceMode,
 } = require('../services/control.service');
 const { publish, publishStatusSnapshot } = require('../services/eventBus.service');
 const { getSystemStatus } = require('../services/status.service');
@@ -83,6 +85,31 @@ router.post('/emergency-stop', async (request, response, next) => {
     const updatedBy = request.header('x-user-name') || 'dashboard';
     const control = await pauseRuntimeControl({ reason, updatedBy, emergencyStop: true, metadata });
     await pushControlSnapshot('control.emergency_stop', control);
+    response.json(await buildControlResponse());
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+router.post('/maintenance/on', async (request, response, next) => {
+  try {
+    const { reason = 'manual_maintenance', scope = 'system', until = null, metadata = {} } = request.body || {};
+    const updatedBy = request.header('x-user-name') || 'dashboard';
+    const control = await setMaintenanceMode({ reason, scope, until, updatedBy, metadata });
+    await pushControlSnapshot('control.maintenance_on', control);
+    response.json(await buildControlResponse());
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/maintenance/off', async (request, response, next) => {
+  try {
+    const { resume = false, metadata = {} } = request.body || {};
+    const updatedBy = request.header('x-user-name') || 'dashboard';
+    const control = await clearMaintenanceMode({ updatedBy, metadata, resume });
+    await pushControlSnapshot('control.maintenance_off', control);
     response.json(await buildControlResponse());
   } catch (error) {
     next(error);

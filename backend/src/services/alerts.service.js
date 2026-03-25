@@ -1,5 +1,6 @@
 const pool = require('../db/pool');
 const { publish } = require('./eventBus.service');
+const { notifyAlertEvent } = require('./notifications.service');
 
 function normalizeAlertRow(row) {
   if (!row) return null;
@@ -73,6 +74,9 @@ async function upsertActiveAlert({
 
   const row = normalizeAlertRow(result.rows[0]);
   publish('alerts.updated', row);
+  if (['high', 'critical'].includes(String(row.severity || '').toLowerCase())) {
+    notifyAlertEvent(row).catch((error) => console.error('notification dispatch failed', error.message));
+  }
   return row;
 }
 

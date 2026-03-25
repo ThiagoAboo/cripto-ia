@@ -55,4 +55,32 @@ module.exports = {
       dryRun: getBooleanEnv('BINANCE_DRY_RUN', true),
     },
   },
+  policy: {
+    requireReadinessForPromotion: getBooleanEnv('POLICY_REQUIRE_READINESS_FOR_PROMOTION', true),
+    requireNoCriticalAlertsForPromotion: getBooleanEnv('POLICY_REQUIRE_NO_CRITICAL_ALERTS', true),
+    requireNoMaintenanceForPromotion: getBooleanEnv('POLICY_REQUIRE_NO_MAINTENANCE_FOR_PROMOTION', true),
+    requireTestnetForLiveCandidate: getBooleanEnv('POLICY_REQUIRE_TESTNET_FOR_LIVE_CANDIDATE', true),
+    requireDryRunForLiveCandidate: getBooleanEnv('POLICY_REQUIRE_DRY_RUN_FOR_LIVE_CANDIDATE', true),
+    requireExplicitConfirmationForLiveCandidate: getBooleanEnv('POLICY_REQUIRE_EXPLICIT_CONFIRMATION_FOR_LIVE_CANDIDATE', true),
+  },
+  notifications: {
+    enabled: getBooleanEnv('NOTIFICATIONS_ENABLED', false),
+    minSeverity: getEnv('NOTIFICATIONS_MIN_SEVERITY', 'high'),
+    webhook: {
+      enabled: getBooleanEnv('NOTIFY_WEBHOOK_ENABLED', false),
+      url: getEnv('NOTIFY_WEBHOOK_URL', ''),
+      timeoutMs: Number(getEnv('NOTIFY_WEBHOOK_TIMEOUT_MS', 8000)),
+    },
+    telegram: {
+      enabled: getBooleanEnv('NOTIFY_TELEGRAM_ENABLED', false),
+      botToken: getEnv('NOTIFY_TELEGRAM_BOT_TOKEN', ''),
+      chatId: getEnv('NOTIFY_TELEGRAM_CHAT_ID', ''),
+      silent: getBooleanEnv('NOTIFY_TELEGRAM_SILENT', true),
+    },
+    email: {
+      enabled: getBooleanEnv('NOTIFY_EMAIL_ENABLED', false),
+      from: getEnv('NOTIFY_EMAIL_FROM', ''),
+      to: getEnv('NOTIFY_EMAIL_TO', ''),
+    },
+  },
 };

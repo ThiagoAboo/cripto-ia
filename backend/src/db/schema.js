@@ -99,6 +99,11 @@ const DEFAULT_BOT_CONFIG = {
   frontend: {
     refreshIntervalSec: 5,
   },
+  operations: {
+    maintenanceMode: false,
+    maintenanceScope: 'system',
+    maintenanceReason: '',
+  },
   optimizer: {
     enabled: true,
     maxCandidatesPerRun: 8,
@@ -772,6 +777,64 @@ await pool.query(`
       ON CONFLICT (config_key, version) DO NOTHING;
     `,
   );
+
+
+  await pool.query(`
+    ALTER TABLE bot_runtime_controls
+    ADD COLUMN IF NOT EXISTS maintenance_mode BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+
+  await pool.query(`
+    ALTER TABLE bot_runtime_controls
+    ADD COLUMN IF NOT EXISTS maintenance_reason TEXT
+  `);
+
+  await pool.query(`
+    ALTER TABLE bot_runtime_controls
+    ADD COLUMN IF NOT EXISTS maintenance_scope TEXT NOT NULL DEFAULT 'system'
+  `);
+
+  await pool.query(`
+    ALTER TABLE bot_runtime_controls
+    ADD COLUMN IF NOT EXISTS maintenance_until TIMESTAMPTZ
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notification_deliveries (
+      id BIGSERIAL PRIMARY KEY,
+      channel TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      severity TEXT,
+      destination TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      response_payload JSONB,
+      error_message TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_notification_deliveries_created_at
+    ON notification_deliveries (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS policy_gate_reports (
+      id BIGSERIAL PRIMARY KEY,
+      gate_type TEXT NOT NULL,
+      target_channel TEXT,
+      status TEXT NOT NULL,
+      requested_by TEXT NOT NULL DEFAULT 'system',
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_policy_gate_reports_created_at
+    ON policy_gate_reports (created_at DESC);
+  `);
 
   await pool.query(
     `

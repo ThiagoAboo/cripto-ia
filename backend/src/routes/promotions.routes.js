@@ -2,6 +2,7 @@ const express = require('express');
 const {
   listPromotions,
   listPromotionRequests,
+  getPromotionRequestById,
   simulateOptimizationWinnerPromotion,
   createApprovalRequestFromOptimizer,
   approvePromotionRequest,
@@ -9,6 +10,7 @@ const {
   rollbackActiveConfigToVersion,
 } = require('../services/promotion.service');
 const { publish } = require('../services/eventBus.service');
+const { evaluatePromotionPolicy } = require('../services/policyGate.service');
 
 const router = express.Router();
 
@@ -41,8 +43,13 @@ router.post('/simulate/from-optimizer/:id', async (request, response, next) => {
       rank,
       targetChannel,
     });
+    const policyGate = await evaluatePromotionPolicy({
+      targetChannel: targetChannel || result.targetChannel || 'paper_active',
+      candidateSummary: result.summary || result.winner || {},
+      requestedBy: request.body?.requestedBy || 'dashboard',
+    });
 
-    response.json(result);
+    response.json({ ...result, policyGate });
   } catch (error) {
     next(error);
   }
@@ -51,6 +58,20 @@ router.post('/simulate/from-optimizer/:id', async (request, response, next) => {
 router.post('/requests/from-optimizer/:id', async (request, response, next) => {
   try {
     const { rank, targetChannel, requestedBy, reason } = request.body || {};
+    const preview = await simulateOptimizationWinnerPromotion({
+      optimizationRunId: Number(request.params.id),
+      rank,
+      targetChannel,
+    });
+    const policyGate = await evaluatePromotionPolicy({
+      targetChannel: targetChannel || preview.targetChannel || 'paper_active',
+      candidateSummary: preview.summary || preview.winner || {},
+      requestedBy: requestedBy || 'dashboard',
+    });
+    if (!policyGate.allow) {
+      return response.status(409).json({ error: 'promotion_policy_blocked', policyGate, preview });
+    }
+
     const result = await createApprovalRequestFromOptimizer({
       optimizationRunId: Number(request.params.id),
       rank,
@@ -66,7 +87,7 @@ router.post('/requests/from-optimizer/:id', async (request, response, next) => {
       status: result.request?.status,
     });
 
-    response.status(201).json(result);
+    response.status(201).json({ ...result, policyGate });
   } catch (error) {
     next(error);
   }
@@ -75,6 +96,16 @@ router.post('/requests/from-optimizer/:id', async (request, response, next) => {
 router.post('/requests/:requestId/approve', async (request, response, next) => {
   try {
     const { approvedBy, approvalNote } = request.body || {};
+    const currentRequest = await getPromotionRequestById(Number(request.params.requestId));
+    const policyGate = await evaluatePromotionPolicy({
+      targetChannel: currentRequest?.targetChannel || 'paper_active',
+      candidateSummary: currentRequest?.summary || {},
+      requestedBy: approvedBy || 'dashboard',
+    });
+    if (!policyGate.allow) {
+      return response.status(409).json({ error: 'promotion_policy_blocked', policyGate, request: currentRequest });
+    }
+
     const result = await approvePromotionRequest({
       requestId: Number(request.params.requestId),
       approvedBy,
@@ -89,7 +120,7 @@ router.post('/requests/:requestId/approve', async (request, response, next) => {
       appliedVersion: result.request?.appliedVersion,
     });
 
-    response.json(result);
+    response.json({ ...result, policyGate });
   } catch (error) {
     next(error);
   }

@@ -271,3 +271,44 @@ export function resolveAlert(alertKey, payload = {}) {
     body: JSON.stringify(payload),
   });
 }
+
+
+export function setMaintenanceMode(payload = {}) {
+  return request('/api/control/maintenance/on', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function clearMaintenanceMode(payload = {}) {
+  return request('/api/control/maintenance/off', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchNotificationChannels() {
+  return request('/api/notifications/channels');
+}
+
+export function fetchNotificationDeliveries(limit = 20) {
+  return request(`/api/notifications/deliveries?limit=${limit}`);
+}
+
+export function sendTestNotification(payload = {}) {
+  return request('/api/notifications/test', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchPolicyReports(limit = 20) {
+  return request(`/api/policy/reports?limit=${limit}`);
+}
+
+export function evaluatePromotionPolicy(payload = {}) {
+  return request('/api/policy/evaluate-promotion', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

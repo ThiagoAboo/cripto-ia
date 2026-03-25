@@ -9,6 +9,10 @@ function normalizeControlRow(row) {
       isPaused: false,
       emergencyStop: false,
       pauseReason: null,
+      maintenanceMode: false,
+      maintenanceReason: null,
+      maintenanceScope: 'system',
+      maintenanceUntil: null,
       updatedBy: 'system',
       metadata: {},
       createdAt: null,
@@ -21,6 +25,10 @@ function normalizeControlRow(row) {
     isPaused: Boolean(row.isPaused ?? row.is_paused),
     emergencyStop: Boolean(row.emergencyStop ?? row.emergency_stop),
     pauseReason: row.pauseReason ?? row.pause_reason ?? null,
+    maintenanceMode: Boolean(row.maintenanceMode ?? row.maintenance_mode),
+    maintenanceReason: row.maintenanceReason ?? row.maintenance_reason ?? null,
+    maintenanceScope: row.maintenanceScope ?? row.maintenance_scope ?? 'system',
+    maintenanceUntil: row.maintenanceUntil ?? row.maintenance_until ?? null,
     updatedBy: row.updatedBy ?? row.updated_by ?? 'system',
     metadata: row.metadata || {},
     createdAt: row.createdAt ?? row.created_at ?? null,
@@ -43,8 +51,12 @@ function normalizeCooldownRow(row) {
 async function ensureRuntimeControl(client = pool) {
   await client.query(
     `
-      INSERT INTO bot_runtime_controls (control_key, is_paused, emergency_stop, pause_reason, updated_by, metadata)
-      VALUES ('active', FALSE, FALSE, NULL, 'system', '{}'::jsonb)
+      INSERT INTO bot_runtime_controls (
+        control_key, is_paused, emergency_stop, pause_reason,
+        maintenance_mode, maintenance_reason, maintenance_scope, maintenance_until,
+        updated_by, metadata
+      )
+      VALUES ('active', FALSE, FALSE, NULL, FALSE, NULL, 'system', NULL, 'system', '{}'::jsonb)
       ON CONFLICT (control_key) DO NOTHING
     `,
   );
@@ -60,6 +72,10 @@ async function getRuntimeControl(client = pool) {
         is_paused AS "isPaused",
         emergency_stop AS "emergencyStop",
         pause_reason AS "pauseReason",
+        maintenance_mode AS "maintenanceMode",
+        maintenance_reason AS "maintenanceReason",
+        maintenance_scope AS "maintenanceScope",
+        maintenance_until AS "maintenanceUntil",
         updated_by AS "updatedBy",
         metadata,
         created_at AS "createdAt",
@@ -84,6 +100,10 @@ async function updateRuntimeControl(patch = {}, options = {}, client = pool) {
     isPaused: patch.isPaused ?? current.isPaused,
     emergencyStop: patch.emergencyStop ?? current.emergencyStop,
     pauseReason: patch.pauseReason !== undefined ? patch.pauseReason : current.pauseReason,
+    maintenanceMode: patch.maintenanceMode ?? current.maintenanceMode,
+    maintenanceReason: patch.maintenanceReason !== undefined ? patch.maintenanceReason : current.maintenanceReason,
+    maintenanceScope: patch.maintenanceScope !== undefined ? patch.maintenanceScope : current.maintenanceScope,
+    maintenanceUntil: patch.maintenanceUntil !== undefined ? patch.maintenanceUntil : current.maintenanceUntil,
     updatedBy: options.updatedBy || patch.updatedBy || current.updatedBy || 'system',
     metadata,
   };
@@ -95,8 +115,12 @@ async function updateRuntimeControl(patch = {}, options = {}, client = pool) {
         is_paused = $2,
         emergency_stop = $3,
         pause_reason = $4,
-        updated_by = $5,
-        metadata = $6::jsonb,
+        maintenance_mode = $5,
+        maintenance_reason = $6,
+        maintenance_scope = $7,
+        maintenance_until = $8,
+        updated_by = $9,
+        metadata = $10::jsonb,
         updated_at = NOW()
       WHERE control_key = $1
       RETURNING
@@ -104,12 +128,27 @@ async function updateRuntimeControl(patch = {}, options = {}, client = pool) {
         is_paused AS "isPaused",
         emergency_stop AS "emergencyStop",
         pause_reason AS "pauseReason",
+        maintenance_mode AS "maintenanceMode",
+        maintenance_reason AS "maintenanceReason",
+        maintenance_scope AS "maintenanceScope",
+        maintenance_until AS "maintenanceUntil",
         updated_by AS "updatedBy",
         metadata,
         created_at AS "createdAt",
         updated_at AS "updatedAt"
     `,
-    ['active', nextState.isPaused, nextState.emergencyStop, nextState.pauseReason, nextState.updatedBy, JSON.stringify(nextState.metadata || {})],
+    [
+      'active',
+      nextState.isPaused,
+      nextState.emergencyStop,
+      nextState.pauseReason,
+      nextState.maintenanceMode,
+      nextState.maintenanceReason,
+      nextState.maintenanceScope,
+      nextState.maintenanceUntil,
+      nextState.updatedBy,
+      JSON.stringify(nextState.metadata || {}),
+    ],
   );
 
   return normalizeControlRow(result.rows[0]);
@@ -142,6 +181,46 @@ async function resumeRuntimeControl({ updatedBy = 'system', metadata = {}, clear
         ...metadata,
         lastAction: 'RESUME',
         resumedAt: new Date().toISOString(),
+      },
+    },
+    { updatedBy },
+    client,
+  );
+}
+
+async function setMaintenanceMode({ reason = 'manual_maintenance', scope = 'system', until = null, updatedBy = 'system', metadata = {} } = {}, client = pool) {
+  return updateRuntimeControl(
+    {
+      isPaused: true,
+      maintenanceMode: true,
+      maintenanceReason: reason,
+      maintenanceScope: scope || 'system',
+      maintenanceUntil: until || null,
+      pauseReason: reason,
+      metadata: {
+        ...metadata,
+        lastAction: 'MAINTENANCE_ON',
+        maintenanceAt: new Date().toISOString(),
+      },
+    },
+    { updatedBy },
+    client,
+  );
+}
+
+async function clearMaintenanceMode({ updatedBy = 'system', metadata = {}, resume = false } = {}, client = pool) {
+  return updateRuntimeControl(
+    {
+      maintenanceMode: false,
+      maintenanceReason: null,
+      maintenanceScope: 'system',
+      maintenanceUntil: null,
+      pauseReason: resume ? null : undefined,
+      isPaused: resume ? false : undefined,
+      metadata: {
+        ...metadata,
+        lastAction: resume ? 'MAINTENANCE_OFF_AND_RESUME' : 'MAINTENANCE_OFF',
+        maintenanceClearedAt: new Date().toISOString(),
       },
     },
     { updatedBy },
@@ -367,6 +446,8 @@ async function applyRiskGuardrails(configOverride = null, client = pool) {
 
 module.exports = {
   getRuntimeControl,
+  setMaintenanceMode,
+  clearMaintenanceMode,
   updateRuntimeControl,
   pauseRuntimeControl,
   resumeRuntimeControl,

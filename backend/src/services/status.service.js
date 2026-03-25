@@ -11,6 +11,8 @@ const { listPromotions, listPromotionRequests } = require('./promotion.service')
 const { listActiveAlerts } = require('./alerts.service');
 const { getLatestReadinessReport, listReadinessReports } = require('./readiness.service');
 const { listScheduledJobRuns } = require('./scheduler.service');
+const { getNotificationChannelsStatus, listNotificationDeliveries } = require('./notifications.service');
+const { listPolicyGateReports } = require('./policyGate.service');
 
 async function getSystemStatus() {
   const [
@@ -38,6 +40,9 @@ async function getSystemStatus() {
     latestReadiness,
     recentReadinessReports,
     recentJobRuns,
+    notificationChannels,
+    notificationDeliveries,
+    recentPolicyReports,
   ] = await Promise.all([
     getActiveConfig(),
     getConfigHistory({ limit: 5 }),
@@ -92,6 +97,9 @@ async function getSystemStatus() {
     getLatestReadinessReport(),
     listReadinessReports({ limit: 5 }),
     listScheduledJobRuns({ limit: 10 }),
+    getNotificationChannelsStatus(),
+    listNotificationDeliveries({ limit: 10 }),
+    listPolicyGateReports({ limit: 10 }),
   ]);
 
   return {
@@ -141,6 +149,13 @@ async function getSystemStatus() {
     latestReadiness,
     recentReadinessReports,
     recentJobRuns,
+    notifications: {
+      ...notificationChannels,
+      recentDeliveries: notificationDeliveries,
+    },
+    policy: {
+      recentReports: recentPolicyReports,
+    },
     timestamp: new Date().toISOString(),
   };
 }
