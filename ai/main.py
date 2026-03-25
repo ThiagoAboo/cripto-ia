@@ -13,12 +13,29 @@ WORKER_NAME = os.getenv("WORKER_NAME", "ai-trading-worker")
 LOOP_INTERVAL_SEC = int(os.getenv("LOOP_INTERVAL_SEC", "15"))
 MARKET_REFRESH = os.getenv("MARKET_REFRESH", "false").lower() in {"1", "true", "yes", "on"}
 REQUEST_TIMEOUT_SEC = int(os.getenv("REQUEST_TIMEOUT_SEC", "20"))
+BACKEND_WAIT_INTERVAL_SEC = int(os.getenv("BACKEND_WAIT_INTERVAL_SEC", "5"))
+BACKEND_WAIT_MAX_ATTEMPTS = int(os.getenv("BACKEND_WAIT_MAX_ATTEMPTS", "0"))
 
 session = requests.Session()
 session.headers.update({
     "Content-Type": "application/json",
     "x-internal-api-key": INTERNAL_API_KEY,
 })
+
+def wait_for_backend() -> None:
+    attempts = 0
+    while True:
+        try:
+            response = requests.get(f"{BACKEND_URL}/api/health", timeout=min(REQUEST_TIMEOUT_SEC, 5))
+            response.raise_for_status()
+            return
+        except Exception as error:  # noqa: BLE001
+            attempts += 1
+            print(f"[{WORKER_NAME}] aguardando backend ficar pronto: {error}")
+            if BACKEND_WAIT_MAX_ATTEMPTS > 0 and attempts >= BACKEND_WAIT_MAX_ATTEMPTS:
+                raise
+            time.sleep(max(1, BACKEND_WAIT_INTERVAL_SEC))
+
 
 
 def clamp(value: float, low: float, high: float) -> float:
@@ -783,7 +800,12 @@ def loop_once() -> None:
 
 
 def main() -> None:
-    publish_event("worker.started", {"workerName": WORKER_NAME})
+    wait_for_backend()
+
+    try:
+        publish_event("worker.started", {"workerName": WORKER_NAME})
+    except Exception as error:  # noqa: BLE001
+        print(f"[{WORKER_NAME}] falha ao publicar evento de início: {error}")
 
     while True:
         try:

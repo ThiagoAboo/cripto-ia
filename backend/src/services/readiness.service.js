@@ -1,7 +1,6 @@
 const pool = require('../db/pool');
 const env = require('../config/env');
 const { getActiveConfig } = require('./config.service');
-const { getExecutionStatus } = require('./executionAdapter.service');
 const { getRuntimeControl } = require('./control.service');
 const { getProviderStatuses } = require('./social.service');
 const { publish } = require('./eventBus.service');
@@ -71,6 +70,8 @@ async function getLatestReadinessReport() {
 }
 
 async function evaluateReadiness({ requestedBy = 'dashboard', triggerSource = 'manual' } = {}) {
+  const { getExecutionStatus } = require('./executionAdapter.service');
+
   const [configRow, execution, control, providers, workersResult, marketResult] = await Promise.all([
     getActiveConfig(),
     getExecutionStatus(),
