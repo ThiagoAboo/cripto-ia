@@ -1,6 +1,6 @@
 export default function Section({ title, subtitle, actions, children }) {
   return (
-    <section className="panel">
+    <section className="panel section-panel">
       <div className="panel__header">
         <div>
           <h2>{title}</h2>
