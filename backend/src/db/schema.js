@@ -149,6 +149,35 @@ async function initializeDatabase() {
     );
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS training_runtime_state (
+      id BIGSERIAL PRIMARY KEY,
+      config_key TEXT NOT NULL UNIQUE,
+      state JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_training_runtime_state_updated_at
+    ON training_runtime_state (updated_at DESC);
+  `);
+
+  await pool.query(`
+    INSERT INTO training_runtime_state (config_key, state, created_at, updated_at)
+    SELECT 'active', COALESCE(config->'training'->'runtime', '{}'::jsonb), NOW(), NOW()
+    FROM bot_configs
+    WHERE config_key = 'active'
+    ON CONFLICT (config_key) DO NOTHING;
+  `);
+
+  await pool.query(`
+    INSERT INTO training_runtime_state (config_key, state, created_at, updated_at)
+    VALUES ('active', '{}'::jsonb, NOW(), NOW())
+    ON CONFLICT (config_key) DO NOTHING;
+  `);
+
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS config_change_audit (

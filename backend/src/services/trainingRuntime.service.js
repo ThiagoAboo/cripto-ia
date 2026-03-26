@@ -1,3 +1,4 @@
+const pool = require('../db/pool');
 const { getActiveConfig, updateActiveConfig } = require('./config.service');
 const { listRegimePresets } = require('./trainingAdaptation.service');
 
@@ -32,9 +33,11 @@ function round(value, decimals = 4) {
 function normalizeWeights(weights = {}) {
   const entries = Object.entries(weights || {}).map(([key, value]) => [key, Math.max(Number(value) || 0, 0)]);
   const total = entries.reduce((sum, [, value]) => sum + value, 0);
+
   if (!total) {
     return null;
   }
+
   return Object.fromEntries(entries.map(([key, value]) => [key, round(value / total)]));
 }
 
@@ -45,10 +48,72 @@ function diffSecondsFromNow(value) {
   return Math.max(0, Math.round((Date.now() - timestamp) / 1000));
 }
 
-function buildSyncMeta(runtime = {}, configVersion = null) {
+function sanitizeRuntimeState(input = {}) {
+  const runtime = { ...(input || {}) };
+
+  delete runtime.syncHealth;
+  delete runtime.syncIssues;
+  delete runtime.workerLagSeconds;
+
+  if (runtime.effectiveExpertWeights) {
+    runtime.effectiveExpertWeights = normalizeWeights(runtime.effectiveExpertWeights);
+  }
+
+  if (runtime.dominantExpertScore !== undefined && runtime.dominantExpertScore !== null) {
+    runtime.dominantExpertScore = round(runtime.dominantExpertScore, 4);
+  }
+
+  return runtime;
+}
+
+async function getPersistedRuntimeRow() {
+  const result = await pool.query(
+    `
+      SELECT id, config_key AS "configKey", state, created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM training_runtime_state
+      WHERE config_key = 'active'
+      LIMIT 1
+    `,
+  );
+
+  const row = result.rows[0] || null;
+  if (!row) return null;
+
+  return {
+    ...row,
+    state: sanitizeRuntimeState(row.state || {}),
+  };
+}
+
+async function persistRuntimeState(nextRuntimeState = {}, { configKey = 'active' } = {}) {
+  const safeState = sanitizeRuntimeState(nextRuntimeState);
+
+  const result = await pool.query(
+    `
+      INSERT INTO training_runtime_state (config_key, state, created_at, updated_at)
+      VALUES ($1, $2::jsonb, NOW(), NOW())
+      ON CONFLICT (config_key)
+      DO UPDATE SET
+        state = EXCLUDED.state,
+        updated_at = NOW()
+      RETURNING id, config_key AS "configKey", state, created_at AS "createdAt", updated_at AS "updatedAt"
+    `,
+    [configKey, JSON.stringify(safeState)],
+  );
+
+  const row = result.rows[0] || null;
+  return row
+    ? {
+        ...row,
+        state: sanitizeRuntimeState(row.state || {}),
+      }
+    : null;
+}
+
+function buildSyncMeta(runtime = {}, activeConfigVersion = null) {
   const syncIssues = [];
-  const workerLagSeconds = diffSecondsFromNow(runtime.workerReportedAt || runtime.lastRuntimeSyncAt || null);
-  const workerConfigVersionSeen = runtime.workerConfigVersionSeen || runtime.configVersionAtSync || null;
+  const workerLagSeconds = diffSecondsFromNow(runtime.workerReportedAt || null);
+  const workerConfigVersionSeen = runtime.workerConfigVersionSeen || null;
 
   if (!runtime.workerReportedAt) {
     syncIssues.push('worker_not_reported_yet');
@@ -58,7 +123,7 @@ function buildSyncMeta(runtime = {}, configVersion = null) {
     syncIssues.push('worker_report_stale');
   }
 
-  if (configVersion && workerConfigVersionSeen && Number(workerConfigVersionSeen) < Number(configVersion)) {
+  if (activeConfigVersion && workerConfigVersionSeen && Number(workerConfigVersionSeen) < Number(activeConfigVersion)) {
     syncIssues.push('worker_using_old_config_version');
   }
 
@@ -82,37 +147,44 @@ function buildSyncMeta(runtime = {}, configVersion = null) {
   };
 }
 
-function buildRuntimeState(training = {}, configVersion = null) {
-  const runtime = training.runtime || {};
+function buildRuntimeState({ training = {}, persistedRuntime = null, activeConfigVersion = null, runtimeUpdatedAt = null } = {}) {
+  const storedRuntime = sanitizeRuntimeState(persistedRuntime || training.runtime || {});
   const effectiveWeights =
-    normalizeWeights(runtime.effectiveExpertWeights) ||
+    normalizeWeights(storedRuntime.effectiveExpertWeights) ||
     normalizeWeights(training.expertWeights) ||
     null;
 
   const resolved = {
     ...DEFAULT_RUNTIME_STATE,
-    ...runtime,
+    ...storedRuntime,
     currentRegime:
-      runtime.currentRegime ||
+      storedRuntime.currentRegime ||
       training.currentRegime ||
       training.activeRegimePreset ||
       DEFAULT_RUNTIME_STATE.currentRegime,
     effectiveExpertWeights: effectiveWeights,
-    source: runtime.source || (effectiveWeights ? 'config' : DEFAULT_RUNTIME_STATE.source),
-    configVersionAtSync: runtime.configVersionAtSync || configVersion || null,
-    runtimeStatus: runtime.runtimeStatus || (effectiveWeights ? 'ready' : DEFAULT_RUNTIME_STATE.runtimeStatus),
+    source: storedRuntime.source || (effectiveWeights ? 'config' : DEFAULT_RUNTIME_STATE.source),
+    configVersionAtSync: storedRuntime.configVersionAtSync || activeConfigVersion || null,
+    runtimeStatus: storedRuntime.runtimeStatus || (effectiveWeights ? 'ready' : DEFAULT_RUNTIME_STATE.runtimeStatus),
+    runtimeUpdatedAt: runtimeUpdatedAt || null,
   };
 
   return {
     ...resolved,
-    ...buildSyncMeta(resolved, configVersion || null),
+    ...buildSyncMeta(resolved, activeConfigVersion || null),
   };
 }
 
 async function getTrainingRuntimeState() {
-  const activeConfig = await getActiveConfig();
+  const [activeConfig, runtimeRow] = await Promise.all([getActiveConfig(), getPersistedRuntimeRow()]);
   const training = activeConfig?.config?.training || {};
-  const runtime = buildRuntimeState(training, activeConfig?.version || null);
+
+  const runtime = buildRuntimeState({
+    training,
+    persistedRuntime: runtimeRow?.state || null,
+    activeConfigVersion: activeConfig?.version || null,
+    runtimeUpdatedAt: runtimeRow?.updatedAt || null,
+  });
 
   return {
     runtime,
@@ -125,66 +197,45 @@ async function getTrainingRuntimeState() {
     },
     configVersion: activeConfig?.version || null,
     updatedAt: activeConfig?.updatedAt || activeConfig?.updated_at || null,
+    runtimeUpdatedAt: runtimeRow?.updatedAt || null,
   };
 }
 
 async function updateTrainingRuntimeState(nextRuntimePatch = {}, { requestedBy = 'dashboard', reason = 'training_runtime_update' } = {}) {
-  const activeConfig = await getActiveConfig();
-  const currentConfig = activeConfig?.config || {};
-  const currentTraining = currentConfig.training || {};
-  const currentRuntime = buildRuntimeState(currentTraining, activeConfig?.version || null);
+  const state = await getTrainingRuntimeState();
+  const currentRuntime = state.runtime || DEFAULT_RUNTIME_STATE;
 
-  const nextRuntime = {
+  const nextRuntime = sanitizeRuntimeState({
     ...currentRuntime,
     ...(nextRuntimePatch || {}),
-  };
-
-  if (nextRuntime.effectiveExpertWeights) {
-    nextRuntime.effectiveExpertWeights = normalizeWeights(nextRuntime.effectiveExpertWeights);
-  }
+  });
 
   if (!nextRuntime.currentRegime) {
-    nextRuntime.currentRegime = currentTraining.currentRegime || currentTraining.activeRegimePreset || 'mixed';
+    nextRuntime.currentRegime = state.training?.currentRegime || 'mixed';
   }
 
-  const nextTraining = {
-    ...currentTraining,
-    runtime: nextRuntime,
-  };
-
-  const updated = await updateActiveConfig(
-    {
-      ...currentConfig,
-      training: nextTraining,
-    },
-    {
-      actionType: 'training_runtime_state_update',
-      actor: requestedBy,
-      reason,
-      metadata: {
-        runtimeKeys: Object.keys(nextRuntimePatch || {}),
-        currentRegime: nextRuntime.currentRegime,
-      },
-    },
-  );
+  const persisted = await persistRuntimeState(nextRuntime);
+  const payload = await getTrainingRuntimeState();
 
   return {
     message: 'Estado de runtime do treinamento atualizado com sucesso.',
-    runtime: buildRuntimeState(updated?.config?.training || {}, updated?.version || null),
-    configVersion: updated?.version || null,
+    actor: requestedBy,
+    reason,
+    runtime: payload.runtime,
+    configVersion: payload.configVersion,
+    runtimeUpdatedAt: persisted?.updatedAt || payload.runtimeUpdatedAt || null,
   };
 }
 
-async function activateRuntimeRegime({ regimeKey, requestedBy = 'dashboard' } = {}) {
+async function resolvePresetByRegime(regimeKey) {
   const safeKey = String(regimeKey || '').trim();
-  if (!safeKey) {
-    const error = new Error('regimeKey é obrigatório.');
-    error.statusCode = 400;
-    throw error;
-  }
-
+  if (!safeKey) return null;
   const presetResponse = await listRegimePresets({ limit: 30 });
-  const preset = (presetResponse.presets || []).find((item) => item.regimeKey === safeKey);
+  return (presetResponse.presets || []).find((item) => item.regimeKey === safeKey) || null;
+}
+
+async function activateRuntimeRegime({ regimeKey, requestedBy = 'dashboard' } = {}) {
+  const preset = await resolvePresetByRegime(regimeKey);
 
   if (!preset) {
     const error = new Error('Preset de regime não encontrado para ativação em runtime.');
@@ -196,28 +247,15 @@ async function activateRuntimeRegime({ regimeKey, requestedBy = 'dashboard' } = 
   const currentConfig = activeConfig?.config || {};
   const currentTraining = currentConfig.training || {};
 
-  const nextTraining = {
-    ...currentTraining,
-    currentRegime: preset.regimeKey,
-    activeRegimePreset: preset.regimeKey,
-    expertWeights: preset.weights,
-    runtime: {
-      ...buildRuntimeState(currentTraining, activeConfig?.version || null),
-      currentRegime: preset.regimeKey,
-      effectiveExpertWeights: preset.weights,
-      source: 'preset_runtime_activation',
-      presetAppliedAt: new Date().toISOString(),
-      configVersionAtSync: activeConfig?.version || null,
-      lastRuntimeSyncAt: new Date().toISOString(),
-      runtimeStatus: 'ready',
-      notes: `Preset ${preset.regimeKey} ativado para uso em runtime.`,
-    },
-  };
-
   const updated = await updateActiveConfig(
     {
       ...currentConfig,
-      training: nextTraining,
+      training: {
+        ...currentTraining,
+        currentRegime: preset.regimeKey,
+        activeRegimePreset: preset.regimeKey,
+        expertWeights: preset.weights,
+      },
     },
     {
       actionType: 'training_runtime_regime_activate',
@@ -230,11 +268,30 @@ async function activateRuntimeRegime({ regimeKey, requestedBy = 'dashboard' } = 
     },
   );
 
+  const nextRuntime = {
+    currentRegime: preset.regimeKey,
+    effectiveExpertWeights: preset.weights,
+    source: 'preset_runtime_activation',
+    presetAppliedAt: new Date().toISOString(),
+    configVersionAtSync: updated?.version || null,
+    lastRuntimeSyncAt: new Date().toISOString(),
+    runtimeStatus: 'ready',
+    notes: `Preset ${preset.regimeKey} ativado para uso em runtime.`,
+  };
+
+  await persistRuntimeState({
+    ...(await getTrainingRuntimeState()).runtime,
+    ...nextRuntime,
+  });
+
+  const payload = await getTrainingRuntimeState();
+
   return {
     message: `Regime ${preset.regimeKey} ativado para runtime com sucesso.`,
     preset,
-    runtime: buildRuntimeState(updated?.config?.training || {}, updated?.version || null),
-    configVersion: updated?.version || null,
+    runtime: payload.runtime,
+    configVersion: payload.configVersion,
+    runtimeUpdatedAt: payload.runtimeUpdatedAt,
   };
 }
 
@@ -249,10 +306,29 @@ async function syncRuntimeWithActivePreset({ requestedBy = 'dashboard' } = {}) {
     throw error;
   }
 
-  return activateRuntimeRegime({
-    regimeKey: targetRegime,
+  const preset = await resolvePresetByRegime(targetRegime);
+  const currentState = await getTrainingRuntimeState();
+  const nextRuntime = {
+    ...currentState.runtime,
+    currentRegime: targetRegime,
+    effectiveExpertWeights: preset?.weights || currentTraining.expertWeights || currentState.runtime?.effectiveExpertWeights || null,
+    source: 'manual_sync',
+    configVersionAtSync: activeConfig?.version || null,
+    lastRuntimeSyncAt: new Date().toISOString(),
+    runtimeStatus: 'ready',
+    notes: `Runtime sincronizado manualmente com o regime ${targetRegime}.`,
+  };
+
+  await persistRuntimeState(nextRuntime);
+  const payload = await getTrainingRuntimeState();
+
+  return {
+    message: `Runtime sincronizado com o regime ${targetRegime}.`,
     requestedBy,
-  });
+    runtime: payload.runtime,
+    configVersion: payload.configVersion,
+    runtimeUpdatedAt: payload.runtimeUpdatedAt,
+  };
 }
 
 async function reportWorkerRuntime(payload = {}) {
@@ -262,7 +338,6 @@ async function reportWorkerRuntime(payload = {}) {
     effectiveExpertWeights = null,
     runtimeStatus = 'running',
     notes = null,
-    syncHealth = null,
     workerConfigVersionSeen = null,
     lastDecisionAction = null,
     lastDecisionReason = null,
@@ -271,29 +346,53 @@ async function reportWorkerRuntime(payload = {}) {
     dominantExpertScore = null,
   } = payload || {};
 
-  return updateTrainingRuntimeState(
-    {
-      workerName,
-      workerReportedAt: new Date().toISOString(),
-      currentRegime: currentRegime || undefined,
-      effectiveExpertWeights: effectiveExpertWeights || undefined,
-      runtimeStatus,
-      source: 'worker_report',
-      notes,
-      syncHealth: syncHealth || undefined,
-      workerConfigVersionSeen: workerConfigVersionSeen || undefined,
-      lastDecisionAction: lastDecisionAction || undefined,
-      lastDecisionReason: lastDecisionReason || undefined,
-      lastDecisionAt: lastDecisionAt || undefined,
-      dominantExpertKey: dominantExpertKey || undefined,
-      dominantExpertScore: dominantExpertScore || undefined,
-      lastRuntimeSyncAt: new Date().toISOString(),
-    },
-    {
-      requestedBy: workerName,
-      reason: 'worker_runtime_report',
-    },
-  );
+  const currentState = await getTrainingRuntimeState();
+  const now = new Date().toISOString();
+  const activeConfigVersion = currentState.configVersion || null;
+  const workerVersion = workerConfigVersionSeen !== null && workerConfigVersionSeen !== undefined
+    ? Number(workerConfigVersionSeen)
+    : null;
+
+  const confirmedSync =
+    activeConfigVersion !== null &&
+    workerVersion !== null &&
+    Number(workerVersion) >= Number(activeConfigVersion);
+
+  const nextRuntime = {
+    ...currentState.runtime,
+    workerName,
+    workerReportedAt: now,
+    currentRegime: currentRegime || currentState.runtime?.currentRegime || currentState.training?.currentRegime || 'mixed',
+    effectiveExpertWeights:
+      effectiveExpertWeights || currentState.runtime?.effectiveExpertWeights || currentState.training?.expertWeights || null,
+    runtimeStatus,
+    source: 'worker_report',
+    notes,
+    workerConfigVersionSeen: workerVersion,
+    lastDecisionAction: lastDecisionAction || currentState.runtime?.lastDecisionAction || null,
+    lastDecisionReason: lastDecisionReason || currentState.runtime?.lastDecisionReason || null,
+    lastDecisionAt: lastDecisionAt || currentState.runtime?.lastDecisionAt || null,
+    dominantExpertKey: dominantExpertKey || currentState.runtime?.dominantExpertKey || null,
+    dominantExpertScore:
+      dominantExpertScore !== null && dominantExpertScore !== undefined
+        ? dominantExpertScore
+        : currentState.runtime?.dominantExpertScore || null,
+  };
+
+  if (confirmedSync) {
+    nextRuntime.configVersionAtSync = activeConfigVersion;
+    nextRuntime.lastRuntimeSyncAt = now;
+  }
+
+  await persistRuntimeState(nextRuntime);
+  const payloadResponse = await getTrainingRuntimeState();
+
+  return {
+    message: 'Runtime reportado pelo worker com sucesso.',
+    runtime: payloadResponse.runtime,
+    configVersion: payloadResponse.configVersion,
+    runtimeUpdatedAt: payloadResponse.runtimeUpdatedAt,
+  };
 }
 
 module.exports = {

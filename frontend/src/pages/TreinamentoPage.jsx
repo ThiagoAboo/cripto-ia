@@ -543,8 +543,10 @@ export default function TreinamentoPage() {
             <div>Último reporte do worker: <strong>{formatDateTime(currentRuntime?.workerReportedAt)}</strong></div>
             <div>Defasagem do worker: <strong>{currentRuntime?.workerLagSeconds != null ? `${formatNumber(currentRuntime?.workerLagSeconds, 0)}s` : '—'}</strong></div>
             <div>Worker: <strong>{currentRuntime?.workerName || '—'}</strong></div>
-            <div>Config usada no sync: <strong>{runtimePayload?.configVersion || currentRuntime?.configVersionAtSync || '—'}</strong></div>
+            <div>Versão ativa da config: <strong>{runtimePayload?.configVersion || '—'}</strong></div>
+            <div>Config usada no sync: <strong>{currentRuntime?.configVersionAtSync || '—'}</strong></div>
             <div>Versão vista pelo worker: <strong>{currentRuntime?.workerConfigVersionSeen || '—'}</strong></div>
+            <div>Runtime persistido em: <strong>{formatDateTime(runtimePayload?.runtimeUpdatedAt || currentRuntime?.runtimeUpdatedAt)}</strong></div>
             <div>Última ação da AI: <strong>{currentRuntime?.lastDecisionAction || '—'}</strong></div>
             <div>Motivo da última ação: <strong>{currentRuntime?.lastDecisionReason || '—'}</strong></div>
             <div>Expert dominante: <strong>{currentRuntime?.dominantExpertKey || '—'}</strong>{currentRuntime?.dominantExpertScore != null ? ` • score ${formatNumber(currentRuntime?.dominantExpertScore, 4)}` : ''}</div>
