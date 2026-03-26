@@ -6,6 +6,11 @@ const {
   insertObservabilitySnapshot,
   exportObservabilityData,
 } = require('../services/observability.service');
+const {
+  getGovernanceOverview,
+  listGovernanceReports,
+  insertGovernanceReport,
+} = require('../services/governanceAssessment.service');
 
 const router = express.Router();
 
@@ -32,6 +37,37 @@ router.post('/snapshot', async (request, response, next) => {
   try {
     const source = request.body?.source || 'dashboard';
     const item = await insertObservabilitySnapshot({ source });
+    response.status(201).json(item);
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+router.get('/governance', async (_request, response, next) => {
+  try {
+    const overview = await getGovernanceOverview();
+    response.json(overview);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/governance/history', async (request, response, next) => {
+  try {
+    const limit = Number(request.query.limit || 20);
+    const status = String(request.query.status || '').trim().toLowerCase();
+    const items = await listGovernanceReports({ limit, status });
+    response.json({ count: items.length, items });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/governance/run', async (request, response, next) => {
+  try {
+    const requestedBy = request.body?.requestedBy || request.header('x-user-name') || 'dashboard';
+    const item = await insertGovernanceReport({ requestedBy, triggerSource: 'manual', autoEscalate: true });
     response.status(201).json(item);
   } catch (error) {
     next(error);

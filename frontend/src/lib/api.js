@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+const API_BASE_URL = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://localhost:4000';
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -307,6 +307,27 @@ export function evaluatePromotionPolicy(payload = {}) {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+
+export function fetchGovernanceOverview() {
+  return request('/api/observability/governance');
+}
+
+export function fetchGovernanceHistory(limit = 20, status = '') {
+  const suffix = status ? `&status=${encodeURIComponent(status)}` : '';
+  return request(`/api/observability/governance/history?limit=${limit}${suffix}`);
+}
+
+export function runGovernanceAssessment(payload = {}) {
+  return request('/api/observability/governance/run', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchAlertsSummary(status = 'open') {
+  return request(`/api/alerts/summary?status=${encodeURIComponent(status)}`);
 }
 
 export function runObservabilitySnapshot(payload = {}) {

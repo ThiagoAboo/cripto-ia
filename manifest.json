@@ -1,19 +1,20 @@
 {
-  "stage": 29,
-  "title": "backtest-avancado-validacao-robusta",
-  "createdAt": "2026-03-26T15:45:00Z",
+  "stage": 30,
+  "name": "observabilidade-e-governanca-operacional",
   "files": [
-    "backend/src/services/backtest.service.js",
-    "backend/src/services/backtestValidation.service.js",
-    "backend/src/routes/backtests.routes.js",
+    "backend/src/services/governanceAssessment.service.js",
+    "backend/src/routes/observability.routes.js",
+    "backend/src/routes/alerts.routes.js",
+    "backend/src/services/alerts.service.js",
+    "backend/src/services/scheduler.service.js",
     "backend/src/db/schema.js",
-    "backend/tests/backtestValidation.service.test.cjs",
-    "backend/tests/backtests.routes.validation.test.cjs",
     "backend/tests/helpers/load-with-mocks.cjs",
-    "frontend/src/lib/backtest-validation.js",
-    "frontend/src/lib/backtest-validation.test.js",
-    "docs/ETAPA-29.md",
-    "docs/COMO-APLICAR.md",
-    "README.txt"
+    "backend/tests/governanceAssessment.service.test.cjs",
+    "backend/tests/scheduler.governance.test.cjs",
+    "backend/tests/observability.routes.governance.test.cjs",
+    "frontend/src/lib/api.js",
+    "frontend/src/lib/api.governance.test.js",
+    "docs/ETAPA-30.md",
+    "docs/COMO-APLICAR.md"
   ]
 }

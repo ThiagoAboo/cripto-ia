@@ -1075,6 +1075,29 @@ await pool.query(`
     ON backtest_validation_segments (validation_run_id, segment_index ASC, created_at ASC);
   `);
 
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS operational_governance_reports (
+      id BIGSERIAL PRIMARY KEY,
+      trigger_source TEXT NOT NULL DEFAULT 'manual',
+      requested_by TEXT NOT NULL DEFAULT 'system',
+      status TEXT NOT NULL DEFAULT 'healthy',
+      score NUMERIC(18, 8) NOT NULL DEFAULT 0,
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_operational_governance_reports_created_at
+    ON operational_governance_reports (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_operational_governance_reports_status_created
+    ON operational_governance_reports (status, created_at DESC);
+  `);
+
   await pool.query(
     `
       INSERT INTO bot_runtime_controls (control_key, is_paused, emergency_stop, pause_reason, updated_by, metadata)

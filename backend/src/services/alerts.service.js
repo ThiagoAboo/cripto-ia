@@ -195,10 +195,25 @@ async function listActiveAlerts({ limit = 50, status = 'open' } = {}) {
   return result.rows.map(normalizeAlertRow);
 }
 
+
+async function getAlertsSummary({ status = 'open' } = {}) {
+  const items = await listActiveAlerts({ limit: 200, status });
+  const summary = items.reduce((acc, item) => {
+    const severity = String(item.severity || 'info').toLowerCase();
+    const source = String(item.source || 'system').toLowerCase();
+    acc.bySeverity[severity] = (acc.bySeverity[severity] || 0) + 1;
+    acc.bySource[source] = (acc.bySource[source] || 0) + 1;
+    acc.total += 1;
+    return acc;
+  }, { total: 0, bySeverity: {}, bySource: {}, status });
+  return summary;
+}
+
 module.exports = {
   upsertActiveAlert,
   acknowledgeAlert,
   resolveAlert,
   syncAlertState,
   listActiveAlerts,
+  getAlertsSummary,
 };
