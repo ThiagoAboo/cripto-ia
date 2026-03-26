@@ -1,51 +1,49 @@
-# Como aplicar a Etapa 32
+# Como aplicar a Etapa 33
 
 ## 1. Backend
+Copie:
+- `backend/src/services/systemManifest.service.js`
+- `backend/src/routes/system.routes.js`
+- `backend/src/contracts/public-api.contract.json`
 
-Adicionar/substituir no repositório:
+E registre a rota em `backend/src/app.js`:
 
-- adicionar `backend/src/services/liveGovernance.service.js`
-- substituir `backend/src/routes/control.routes.js`
-- substituir `backend/src/services/scheduler.service.js`
-- adicionar `backend/src/db/migrations/032_live_governance.sql`
-- adicionar testes em `backend/tests/`
-
-## 2. Banco
-
-Executar a migration:
-
-```bash
-psql "$DATABASE_URL" -f backend/src/db/migrations/032_live_governance.sql
+```js
+const systemRoutes = require('./routes/system.routes');
+app.use('/api/system', systemRoutes);
 ```
 
-## 3. Frontend
+## 2. Frontend
+Copie:
+- `frontend/src/lib/contracts.js`
+- `frontend/src/lib/system-manifest.js`
 
-Adicionar:
+Use estes helpers em páginas de governança, observabilidade ou dashboard técnico.
 
-- `frontend/src/lib/live-governance.js`
-- `frontend/src/lib/live-governance.test.js`
+## 3. AI e Social Worker
+Copie as pastas:
+- `ai/app/`
+- `social-worker/app/`
 
-## 4. Rodar testes
+Elas não substituem o runtime atual. Elas servem como **landing zone** para migrar funções de `main.py` aos poucos.
 
-### Backend
+## 4. Testes
+Backend:
 ```bash
-cd backend
-node --test tests/*.test.cjs
+node --test backend/tests/systemManifest.service.test.cjs backend/tests/system.routes.test.cjs
 ```
 
-### Frontend
+Frontend:
 ```bash
-cd frontend
-node --test src/lib/*.test.js
+node --test frontend/src/lib/contracts.test.js frontend/src/lib/system-manifest.test.js
 ```
 
-## 5. Validação operacional sugerida
+Python:
+```bash
+python -m unittest ai.tests.test_runtime_state ai.tests.test_service_manifest social-worker.tests.test_runtime_state social-worker.tests.test_service_manifest
+```
 
-1. criar pedido `testnet`
-2. aprovar e ativar `testnet`
-3. executar `/api/control/live/supervision/run`
-4. corrigir alertas/readiness
-5. criar pedido `live`
-6. aprovar com dois usuários distintos
-7. ativar com `CONFIRMAR_LIVE`
-8. testar rollback via `/api/control/live/rollback`
+## 5. Auditoria de manutenção
+```bash
+bash scripts/maintenance-audit.sh .
+```

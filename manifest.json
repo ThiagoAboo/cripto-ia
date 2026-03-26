@@ -1,19 +1,17 @@
 {
-  "stage": 32,
-  "name": "testnet-live-governanca-forte",
-  "created_at": "2026-03-26T21:30:00Z",
-  "contents": [
-    "backend/src/services/liveGovernance.service.js",
-    "backend/src/routes/control.routes.js",
-    "backend/src/services/scheduler.service.js",
-    "backend/src/db/migrations/032_live_governance.sql",
-    "backend/tests/helpers/load-with-mocks.cjs",
-    "backend/tests/liveGovernance.service.test.cjs",
-    "backend/tests/control.routes.live.test.cjs",
-    "backend/tests/scheduler.live-governance.test.cjs",
-    "frontend/src/lib/live-governance.js",
-    "frontend/src/lib/live-governance.test.js",
-    "docs/ETAPA-32.md",
-    "docs/COMO-APLICAR.md"
+  "stage": 33,
+  "slug": "consolidacao-tecnica-manutencao",
+  "title": "Etapa 33 — consolidação técnica e manutenção",
+  "generated_at": "2026-03-26T00:00:00Z",
+  "highlights": [
+    "manifesto do sistema e contrato público de API",
+    "módulos-base para extração progressiva da AI e do social-worker",
+    "scripts de auditoria de manutenção",
+    "testes automatizados para a camada nova"
+  ],
+  "integration_notes": [
+    "registrar backend/src/routes/system.routes.js em backend/src/app.js",
+    "usar frontend/src/lib/system-manifest.js nas telas operacionais",
+    "migrar trechos de ai/main.py e social-worker/main.py aos poucos para ai/app e social-worker/app"
   ]
 }

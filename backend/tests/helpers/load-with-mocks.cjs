@@ -1,9 +1,7 @@
 const Module = require('module');
-const path = require('path');
 
-function loadWithMocks(modulePath, mocks = {}) {
+function loadWithMocks(targetPath, mocks = {}) {
   const originalLoad = Module._load;
-  const resolvedPath = path.resolve(process.cwd(), modulePath);
   Module._load = function patched(request, parent, isMain) {
     if (Object.prototype.hasOwnProperty.call(mocks, request)) {
       return mocks[request];
@@ -12,8 +10,8 @@ function loadWithMocks(modulePath, mocks = {}) {
   };
 
   try {
-    delete require.cache[resolvedPath];
-    return require(resolvedPath);
+    delete require.cache[require.resolve(targetPath)];
+    return require(targetPath);
   } finally {
     Module._load = originalLoad;
   }
