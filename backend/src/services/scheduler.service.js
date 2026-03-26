@@ -7,6 +7,7 @@ const { getProviderStatuses } = require('./social.service');
 const { getRuntimeControl } = require('./control.service');
 const { syncAlertState, listActiveAlerts } = require('./alerts.service');
 const { insertObservabilitySnapshot, cleanupObservabilitySnapshots } = require('./observability.service');
+const { runTrainingRecalibration } = require('./trainingRecalibration.service');
 
 const timers = [];
 let started = false;
@@ -139,6 +140,7 @@ async function runAlertScan({ requestedBy = 'scheduler', triggerSource = 'schedu
 
 async function runNamedJob(jobKey, { requestedBy = 'scheduler', triggerSource = 'scheduler' } = {}) {
   const run = await createJobRun({ jobKey, requestedBy, triggerSource });
+
   try {
     let output;
     if (jobKey === 'execution_healthcheck') {
@@ -152,6 +154,12 @@ async function runNamedJob(jobKey, { requestedBy = 'scheduler', triggerSource = 
     } else if (jobKey === 'observability_snapshot') {
       output = await insertObservabilitySnapshot({ source: triggerSource });
       await cleanupObservabilitySnapshots();
+    } else if (jobKey === 'training_recalibration') {
+      output = await runTrainingRecalibration({
+        requestedBy,
+        triggerSource,
+        autoApply: true,
+      });
     } else {
       throw new Error(`unknown_job_key:${jobKey}`);
     }
@@ -179,6 +187,7 @@ function scheduleEvery(jobKey, seconds) {
 function startSchedulers() {
   if (started || !env.scheduling.enabled) return;
   started = true;
+
   ['readiness_assessment', 'alert_scan', 'observability_snapshot'].forEach((jobKey) => {
     setTimeout(() => {
       runNamedJob(jobKey, { requestedBy: `startup:${jobKey}`, triggerSource: 'startup' }).catch((error) => {
@@ -186,11 +195,13 @@ function startSchedulers() {
       });
     }, 2000);
   });
+
   scheduleEvery('execution_healthcheck', env.scheduling.healthcheckIntervalSec);
   scheduleEvery('execution_reconciliation', env.scheduling.reconciliationIntervalSec);
   scheduleEvery('readiness_assessment', env.scheduling.readinessIntervalSec);
   scheduleEvery('alert_scan', env.scheduling.alertScanIntervalSec);
   scheduleEvery('observability_snapshot', env.scheduling.observabilitySnapshotIntervalSec);
+  scheduleEvery('training_recalibration', env.scheduling.trainingRecalibrationIntervalSec);
 }
 
 function stopSchedulers() {

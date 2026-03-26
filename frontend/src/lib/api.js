@@ -437,3 +437,21 @@ export function runTrainingAssistance(payload = {}) {
     body: JSON.stringify(payload),
   });
 }
+
+export function fetchTrainingRecalibrationRecommendation(windowDays = 14, symbolScope = '') {
+  const suffix = symbolScope ? `&symbolScope=${encodeURIComponent(symbolScope)}` : '';
+  return request(`/api/training/recalibration/recommendation?windowDays=${windowDays}${suffix}`);
+}
+
+export function fetchTrainingRecalibrationPerformance(windowDays = 14, symbolScope = '') {
+  const suffix = symbolScope ? `&symbolScope=${encodeURIComponent(symbolScope)}` : '';
+  return request(`/api/training/recalibration/performance?windowDays=${windowDays}${suffix}`);
+}
+
+export function fetchTrainingRecalibrationHistory(limit = 20) {
+  return request(`/api/training/recalibration/history?limit=${limit}`);
+}
+
+export function runTrainingRecalibration(payload = {}) {
+  return request('/api/training/recalibration/run', { method: 'POST', body: JSON.stringify(payload), });
+}

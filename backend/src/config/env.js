@@ -41,6 +41,7 @@ module.exports = {
     readinessIntervalSec: Number(getEnv('SCHEDULER_READINESS_INTERVAL_SEC', 600)),
     alertScanIntervalSec: Number(getEnv('SCHEDULER_ALERT_SCAN_INTERVAL_SEC', 120)),
     observabilitySnapshotIntervalSec: Number(getEnv('SCHEDULER_OBSERVABILITY_SNAPSHOT_INTERVAL_SEC', 300)),
+    trainingRecalibrationIntervalSec: Number(getEnv('SCHEDULER_TRAINING_RECALIBRATION_INTERVAL_SEC', 3600)),
   },
   execution: {
     liveEnabled: getBooleanEnv('EXECUTION_LIVE_ENABLED', false),

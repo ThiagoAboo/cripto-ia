@@ -889,6 +889,24 @@ await pool.query(`
     ON model_drift_reports (created_at DESC);
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS training_recalibration_history (
+      id BIGSERIAL PRIMARY KEY,
+      requested_by TEXT NOT NULL DEFAULT 'system',
+      trigger_source TEXT NOT NULL DEFAULT 'manual',
+      window_days INTEGER NOT NULL DEFAULT 14,
+      applied BOOLEAN NOT NULL DEFAULT FALSE,
+      applied_config_version INTEGER,
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_training_recalibration_history_created_at
+    ON training_recalibration_history (created_at DESC);
+  `);
+
   await pool.query(
     `
       INSERT INTO bot_configs (config_key, version, config)

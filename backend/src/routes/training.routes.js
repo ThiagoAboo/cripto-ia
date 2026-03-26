@@ -20,6 +20,12 @@ const {
   syncRuntimeWithActivePreset,
   reportWorkerRuntime,
 } = require('../services/trainingRuntime.service');
+const {
+  getRegimeAndExpertPerformance,
+  getTrainingRecalibrationRecommendation,
+  listTrainingRecalibrationHistory,
+  runTrainingRecalibration,
+} = require('../services/trainingRecalibration.service');
 
 const router = express.Router();
 
@@ -119,6 +125,62 @@ router.post('/runtime/worker-sync', async (request, response, next) => {
   }
 });
 
+router.get('/recalibration/recommendation', async (request, response, next) => {
+  try {
+    const windowDays = Number(request.query.windowDays || 14);
+    const symbolScope = request.query.symbolScope || null;
+    const payload = await getTrainingRecalibrationRecommendation({ windowDays, symbolScope });
+    response.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/recalibration/performance', async (request, response, next) => {
+  try {
+    const windowDays = Number(request.query.windowDays || 14);
+    const symbolScope = request.query.symbolScope || null;
+    const payload = await getRegimeAndExpertPerformance({ windowDays, symbolScope });
+    response.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/recalibration/history', async (request, response, next) => {
+  try {
+    const limit = Number(request.query.limit || 20);
+    const items = await listTrainingRecalibrationHistory({ limit });
+    response.json({ count: items.length, items });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/recalibration/run', async (request, response, next) => {
+  try {
+    const {
+      requestedBy = 'dashboard',
+      triggerSource = 'manual',
+      windowDays = 14,
+      symbolScope = null,
+      autoApply = true,
+      force = false,
+    } = request.body || {};
+    const payload = await runTrainingRecalibration({
+      requestedBy,
+      triggerSource,
+      windowDays,
+      symbolScope,
+      autoApply,
+      force,
+    });
+    response.status(201).json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/logs', async (request, response, next) => {
   try {
     const limit = Number(request.query.limit || 80);
@@ -191,7 +253,6 @@ router.post('/run', async (request, response, next) => {
       requestedBy = 'dashboard',
       applySuggestedWeights = false,
     } = request.body || {};
-
     const result = await runTrainingAssistance({
       label,
       objective,
@@ -200,7 +261,6 @@ router.post('/run', async (request, response, next) => {
       requestedBy,
       applySuggestedWeights,
     });
-
     response.status(201).json(result);
   } catch (error) {
     const parsed = parseTrainingGuardrailError(error);
@@ -208,20 +268,17 @@ router.post('/run', async (request, response, next) => {
       next(error);
       return;
     }
-
     let settings = null;
     try {
       settings = await getTrainingSettings();
     } catch (_settingsError) {
       settings = null;
     }
-
     response.status(201).json({
       ok: true,
       warning: true,
       status: 'completed_with_warning',
-      message:
-        'O treinamento foi concluído, mas a aplicação automática dos pesos foi bloqueada pelo limiar mínimo de qualidade.',
+      message: 'O treinamento foi concluído, mas a aplicação automática dos pesos foi bloqueada pelo limiar mínimo de qualidade.',
       qualityScore: parsed.qualityScore,
       minRequired: settings?.settings?.minQualityScoreForApply ?? null,
       settings: settings?.settings || null,
