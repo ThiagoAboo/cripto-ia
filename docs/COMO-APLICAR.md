@@ -1,48 +1,44 @@
-# Como aplicar este pacote no repositório
+# Como aplicar a Etapa 28
 
-Copie os arquivos deste ZIP para os mesmos caminhos dentro do seu projeto.
+## 1. Backend
 
-## Ordem recomendada
-1. Substituir os arquivos do backend
-2. Substituir `frontend/src/lib/api.js`
-3. Rodar o backend com a nova schema
-4. Rodar os testes do backend
-5. Validar os novos endpoints
+Copiar para o repositório:
 
-## Smoke test sugerido
+- `backend/src/services/decisionPolicy.service.js`
+- `backend/src/routes/decisions.routes.js`
+- `backend/tests/helpers/load-with-mocks.cjs`
+- `backend/tests/decisionPolicy.service.test.cjs`
+- `backend/tests/decisions.routes.test.cjs`
 
-### 1. Instalar dependências do backend
+## 2. Frontend
+
+Copiar para o repositório:
+
+- `frontend/src/lib/decision-preview.js`
+- `frontend/src/lib/decision-preview.test.js`
+
+## 3. AI
+
+Copiar para o repositório:
+
+- `ai/decision_policy.py`
+
+## 4. Rodar testes
+
+### Backend
+
 ```bash
 cd backend
-npm install
+node --test tests/*.test.cjs
 ```
 
-### 2. Executar testes
+### Frontend
+
 ```bash
-npm test
+cd frontend
+node --test src/lib/*.test.js
 ```
 
-### 3. Subir ambiente
-```bash
-docker compose up --build
-```
+## 5. Integração posterior recomendada
 
-### 4. Validar endpoints
-```bash
-curl http://localhost:4000/api/training/recalibration/recommendation
-curl http://localhost:4000/api/training/recalibration/performance
-curl http://localhost:4000/api/training/recalibration/history
-curl -X POST http://localhost:4000/api/training/recalibration/run \
-  -H 'Content-Type: application/json' \
-  -d '{"requestedBy":"dashboard","triggerSource":"manual","autoApply":false}'
-```
-
-## Variável nova
-```env
-SCHEDULER_TRAINING_RECALIBRATION_INTERVAL_SEC=3600
-```
-
-## Resultado esperado
-- o backend passa a expor recomendação, performance e histórico de recalibração
-- o scheduler passa a ter o job `training_recalibration`
-- a tabela `training_recalibration_history` passa a registrar execuções
+No próximo passo, o ideal é ligar a política diretamente no worker da AI para que o `effectiveAction` seja o valor realmente usado na execução.

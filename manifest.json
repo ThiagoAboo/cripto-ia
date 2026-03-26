@@ -1,16 +1,18 @@
 {
-  "stage": 27,
-  "title": "refatoracao-final-frontend-modular",
-  "type": "overlay-package",
-  "apply_mode": "merge_or_replace_same_paths",
+  "stage": 28,
+  "name": "endurecimento-motor-decisao",
+  "summary": "Camada testável de policy para sizing e bloqueios por regime, liquidez, spread, slippage e correlação.",
   "files": [
-    "frontend/src/App.jsx",
-    "frontend/src/components/AppShell.jsx",
-    "frontend/src/hooks/useDashboardController.js",
-    "frontend/src/lib/dashboard-pages.js",
-    "frontend/src/lib/dashboard-pages.test.js",
-    "frontend/src/lib/dashboard-state.js",
-    "frontend/src/lib/dashboard-state.test.js",
-    "docs/ETAPA-27.md"
+    "backend/src/services/decisionPolicy.service.js",
+    "backend/src/routes/decisions.routes.js",
+    "backend/tests/helpers/load-with-mocks.cjs",
+    "backend/tests/decisionPolicy.service.test.cjs",
+    "backend/tests/decisions.routes.test.cjs",
+    "frontend/src/lib/decision-preview.js",
+    "frontend/src/lib/decision-preview.test.js",
+    "ai/decision_policy.py",
+    "docs/ETAPA-28.md",
+    "docs/COMO-APLICAR.md",
+    "docs/AI-INTEGRACAO.md"
   ]
 }
