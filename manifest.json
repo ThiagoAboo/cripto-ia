@@ -1,0 +1,16 @@
+{
+  "stage": 27,
+  "title": "refatoracao-final-frontend-modular",
+  "type": "overlay-package",
+  "apply_mode": "merge_or_replace_same_paths",
+  "files": [
+    "frontend/src/App.jsx",
+    "frontend/src/components/AppShell.jsx",
+    "frontend/src/hooks/useDashboardController.js",
+    "frontend/src/lib/dashboard-pages.js",
+    "frontend/src/lib/dashboard-pages.test.js",
+    "frontend/src/lib/dashboard-state.js",
+    "frontend/src/lib/dashboard-state.test.js",
+    "docs/ETAPA-27.md"
+  ]
+}
