@@ -1024,6 +1024,57 @@ await pool.query(`
     ON observability_metric_snapshots (created_at DESC);
   `);
 
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS backtest_validation_runs (
+      id BIGSERIAL PRIMARY KEY,
+      label TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      symbol VARCHAR(20) NOT NULL,
+      interval VARCHAR(20) NOT NULL,
+      confirmation_interval VARCHAR(20) NOT NULL,
+      objective TEXT NOT NULL DEFAULT 'balanced',
+      candle_limit INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'completed',
+      summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      stability_score NUMERIC(18, 8) NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_backtest_validation_runs_created_at
+    ON backtest_validation_runs (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_backtest_validation_runs_mode_score
+    ON backtest_validation_runs (mode, stability_score DESC, created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS backtest_validation_segments (
+      id BIGSERIAL PRIMARY KEY,
+      validation_run_id BIGINT NOT NULL REFERENCES backtest_validation_runs(id) ON DELETE CASCADE,
+      segment_key TEXT NOT NULL,
+      segment_index INTEGER NOT NULL DEFAULT 0,
+      role TEXT NOT NULL,
+      symbol VARCHAR(20) NOT NULL,
+      regime_label TEXT NOT NULL DEFAULT 'mixed',
+      candle_limit INTEGER NOT NULL DEFAULT 0,
+      metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_backtest_validation_segments_run_idx
+    ON backtest_validation_segments (validation_run_id, segment_index ASC, created_at ASC);
+  `);
+
   await pool.query(
     `
       INSERT INTO bot_runtime_controls (control_key, is_paused, emergency_stop, pause_reason, updated_by, metadata)

@@ -1,44 +1,65 @@
-# Como aplicar a Etapa 28
+# Como aplicar a Etapa 29
 
-## 1. Backend
+## 1. Copiar arquivos
+Mescle os arquivos deste pacote dentro do seu repositório.
 
-Copiar para o repositório:
+## 2. Atualizar backend
+Arquivos alterados:
+- `backend/src/services/backtest.service.js`
+- `backend/src/routes/backtests.routes.js`
+- `backend/src/db/schema.js`
 
-- `backend/src/services/decisionPolicy.service.js`
-- `backend/src/routes/decisions.routes.js`
-- `backend/tests/helpers/load-with-mocks.cjs`
-- `backend/tests/decisionPolicy.service.test.cjs`
-- `backend/tests/decisions.routes.test.cjs`
+Arquivos novos:
+- `backend/src/services/backtestValidation.service.js`
+- `backend/tests/backtestValidation.service.test.cjs`
+- `backend/tests/backtests.routes.validation.test.cjs`
 
-## 2. Frontend
+## 3. Atualizar frontend
+Arquivos novos:
+- `frontend/src/lib/backtest-validation.js`
+- `frontend/src/lib/backtest-validation.test.js`
 
-Copiar para o repositório:
+## 4. Subir banco/backend
+Ao iniciar o backend, o `schema.js` cria:
+- `backtest_validation_runs`
+- `backtest_validation_segments`
 
-- `frontend/src/lib/decision-preview.js`
-- `frontend/src/lib/decision-preview.test.js`
-
-## 3. AI
-
-Copiar para o repositório:
-
-- `ai/decision_policy.py`
-
-## 4. Rodar testes
-
+## 5. Rodar testes
 ### Backend
-
 ```bash
 cd backend
-node --test tests/*.test.cjs
+npm test
 ```
 
 ### Frontend
-
 ```bash
 cd frontend
-node --test src/lib/*.test.js
+npm test
 ```
 
-## 5. Integração posterior recomendada
+## 6. Smoke manual
+### Walk-forward
+```bash
+curl -X POST http://localhost:3001/api/backtests/walk-forward \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "symbol":"BTCUSDT",
+    "candleLimit":700,
+    "objective":"balanced",
+    "minTrainCandles":180,
+    "minTestCandles":80,
+    "stepCandles":80,
+    "maxWindows":4
+  }'
+```
 
-No próximo passo, o ideal é ligar a política diretamente no worker da AI para que o `effectiveAction` seja o valor realmente usado na execução.
+### Robustez
+```bash
+curl -X POST http://localhost:3001/api/backtests/robustness \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "symbols":["BTCUSDT","ETHUSDT"],
+    "candleLimits":[240,360,480],
+    "objective":"balanced"
+  }'
+```

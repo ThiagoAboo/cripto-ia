@@ -424,12 +424,24 @@ async function persistBacktestRun(client, payload) {
   return runId;
 }
 
-async function runSingleBacktest({ label, symbol, interval, confirmationInterval, limit, config, persist = true, meta = {} }) {
-  const primaryPayload = await getCandles({ symbol, interval, limit, refresh: false });
-  const confirmationPayload = await getCandles({ symbol, interval: confirmationInterval, limit, refresh: false });
-
-  const primaryCandles = primaryPayload.candles || [];
-  const confirmationCandles = confirmationPayload.candles || [];
+async function runSingleBacktest({
+  label,
+  symbol,
+  interval,
+  confirmationInterval,
+  limit,
+  config,
+  persist = true,
+  meta = {},
+  marketDataOverride = null,
+  evaluationStartIndex = null,
+}) {
+  const primaryCandles = marketDataOverride?.primaryCandles
+    || (await getCandles({ symbol, interval, limit, refresh: false })).candles
+    || [];
+  const confirmationCandles = marketDataOverride?.confirmationCandles
+    || (await getCandles({ symbol, interval: confirmationInterval, limit, refresh: false })).candles
+    || [];
   const minDataPoints = Number(config?.ai?.minDataPoints || 120);
   const paper = config?.execution?.paper || {};
   const initialCapital = Number(paper.initialCapital || 10000);
@@ -440,6 +452,10 @@ async function runSingleBacktest({ label, symbol, interval, confirmationInterval
   const enableTrailingStop = Boolean(config?.risk?.enableTrailingStop ?? true);
   const trailingStopAtr = Number(config?.risk?.trailingStopAtr || 1.2);
   const objective = meta.objective || config?.optimizer?.defaultObjective || 'balanced';
+  const requestedEvaluationStart = Number.isFinite(Number(evaluationStartIndex))
+    ? Number(evaluationStartIndex)
+    : minDataPoints;
+  const evaluationStart = Math.max(minDataPoints, Math.min(Math.trunc(requestedEvaluationStart), Math.max(minDataPoints, primaryCandles.length - 2)));
 
   if (primaryCandles.length < minDataPoints + 3) {
     throw new Error(`not_enough_primary_candles_for_backtest:${symbol}:${interval}`);
@@ -467,7 +483,7 @@ async function runSingleBacktest({ label, symbol, interval, confirmationInterval
     sellSignals: 0,
   };
 
-  for (let index = minDataPoints; index < primaryCandles.length - 1; index += 1) {
+  for (let index = evaluationStart; index < primaryCandles.length - 1; index += 1) {
     const candle = primaryCandles[index];
     const nextCandle = primaryCandles[index + 1];
     const primarySlice = primaryCandles.slice(0, index + 1);
@@ -578,7 +594,10 @@ async function runSingleBacktest({ label, symbol, interval, confirmationInterval
   const wins = sellTrades.filter((item) => item.realizedPnl > 0).length;
   const endingEquity = state.equityCurve[state.equityCurve.length - 1]?.equity ?? state.cash;
   const totalReturnPct = state.startingBalance > 0 ? ((endingEquity - state.startingBalance) / state.startingBalance) * 100 : 0;
-  const buyHoldReturnPct = primaryCandles.length > 1 ? ((Number(primaryCandles[primaryCandles.length - 1].close) - Number(primaryCandles[minDataPoints].close)) / Number(primaryCandles[minDataPoints].close)) * 100 : 0;
+  const buyHoldBasePrice = Number(primaryCandles[evaluationStart]?.close || primaryCandles[minDataPoints]?.close || 0);
+  const buyHoldReturnPct = primaryCandles.length > 1 && buyHoldBasePrice > 0
+    ? ((Number(primaryCandles[primaryCandles.length - 1].close) - buyHoldBasePrice) / buyHoldBasePrice) * 100
+    : 0;
   const avgTradePct = sellTrades.length ? sellTrades.reduce((sum, item) => sum + Number(item.pnlPct || 0), 0) / sellTrades.length : 0;
 
   const advanced = computeAdvancedMetrics({
@@ -627,6 +646,11 @@ async function runSingleBacktest({ label, symbol, interval, confirmationInterval
     equityCurve: state.equityCurve,
     payload: {
       meta,
+      evaluation: {
+        evaluationStartIndex: evaluationStart,
+        warmupCandles: evaluationStart,
+        source: marketDataOverride ? 'override' : 'provider',
+      },
       generatedAt: new Date().toISOString(),
     },
   };
@@ -840,8 +864,48 @@ async function getBacktestRunById(id) {
   };
 }
 
+
+
+async function runBacktestFromCandles({
+  label,
+  symbol,
+  interval,
+  confirmationInterval,
+  primaryCandles = [],
+  confirmationCandles = [],
+  config,
+  persist = false,
+  meta = {},
+  evaluationStartIndex = null,
+}) {
+  if (!Array.isArray(primaryCandles) || primaryCandles.length === 0) {
+    throw new Error('backtest_primary_candles_required');
+  }
+  if (!Array.isArray(confirmationCandles) || confirmationCandles.length === 0) {
+    throw new Error('backtest_confirmation_candles_required');
+  }
+  const finalInterval = interval || '5m';
+  const finalConfirmationInterval = confirmationInterval || '15m';
+  return runSingleBacktest({
+    label,
+    symbol: String(symbol || '').toUpperCase(),
+    interval: finalInterval,
+    confirmationInterval: finalConfirmationInterval,
+    limit: primaryCandles.length,
+    config: config || {},
+    persist,
+    meta,
+    marketDataOverride: {
+      primaryCandles,
+      confirmationCandles,
+    },
+    evaluationStartIndex,
+  });
+}
+
 module.exports = {
   runBacktest,
+  runBacktestFromCandles,
   compareBacktests,
   listBacktestRuns,
   getBacktestRunById,
