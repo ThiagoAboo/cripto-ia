@@ -1,61 +1,51 @@
-# Como aplicar a Etapa 31
+# Como aplicar a Etapa 32
 
 ## 1. Backend
 
-Adicione o novo arquivo:
+Adicionar/substituir no repositório:
 
-- `backend/src/services/socialIntelligence.service.js`
+- adicionar `backend/src/services/liveGovernance.service.js`
+- substituir `backend/src/routes/control.routes.js`
+- substituir `backend/src/services/scheduler.service.js`
+- adicionar `backend/src/db/migrations/032_live_governance.sql`
+- adicionar testes em `backend/tests/`
 
-Substitua o arquivo:
+## 2. Banco
 
-- `backend/src/routes/social.routes.js`
+Executar a migration:
 
-Adicione o teste:
+```bash
+psql "$DATABASE_URL" -f backend/src/db/migrations/032_live_governance.sql
+```
 
-- `backend/tests/socialIntelligence.service.test.cjs`
+## 3. Frontend
 
-## 2. Frontend
+Adicionar:
 
-Adicione os arquivos:
-
-- `frontend/src/lib/social-intelligence.js`
-- `frontend/src/lib/social-intelligence.test.js`
-
-Esses helpers já permitem integrar a página social sem depender de alterar a tela inteira agora.
-
-## 3. Social worker
-
-Adicione os arquivos:
-
-- `social-worker/social_model.py`
-- `social-worker/tests/test_social_model.py`
-
-Esse módulo foi separado para ser importado pelo `main.py` quando você quiser migrar a lógica de score/classificação para uma camada reutilizável.
+- `frontend/src/lib/live-governance.js`
+- `frontend/src/lib/live-governance.test.js`
 
 ## 4. Rodar testes
 
 ### Backend
-
 ```bash
 cd backend
-node --test tests/socialIntelligence.service.test.cjs
+node --test tests/*.test.cjs
 ```
 
 ### Frontend
-
 ```bash
 cd frontend
-node --test src/lib/social-intelligence.test.js
+node --test src/lib/*.test.js
 ```
 
-### Python
+## 5. Validação operacional sugerida
 
-```bash
-cd social-worker
-python -m unittest tests/test_social_model.py
-```
-
-## Observação
-
-Este pacote foi preparado para **mesclar no seu repositório atual**.
-Ele não aplica alterações automaticamente no GitHub remoto.
+1. criar pedido `testnet`
+2. aprovar e ativar `testnet`
+3. executar `/api/control/live/supervision/run`
+4. corrigir alertas/readiness
+5. criar pedido `live`
+6. aprovar com dois usuários distintos
+7. ativar com `CONFIRMAR_LIVE`
+8. testar rollback via `/api/control/live/rollback`

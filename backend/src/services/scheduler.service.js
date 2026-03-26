@@ -9,6 +9,7 @@ const { syncAlertState, listActiveAlerts } = require('./alerts.service');
 const { insertObservabilitySnapshot, cleanupObservabilitySnapshots } = require('./observability.service');
 const { runTrainingRecalibration } = require('./trainingRecalibration.service');
 const { insertGovernanceReport } = require('./governanceAssessment.service');
+const { insertTestnetSupervisionReport } = require('./liveGovernance.service');
 
 const timers = [];
 let started = false;
@@ -18,7 +19,14 @@ async function createJobRun({ jobKey, triggerSource = 'scheduler', requestedBy =
     `
       INSERT INTO scheduled_job_runs (job_key, trigger_source, requested_by, status, summary, started_at)
       VALUES ($1,$2,$3,'running','{}'::jsonb,NOW())
-      RETURNING id, job_key AS "jobKey", trigger_source AS "triggerSource", requested_by AS "requestedBy", status, summary, started_at AS "startedAt", finished_at AS "finishedAt"
+      RETURNING id,
+                job_key AS "jobKey",
+                trigger_source AS "triggerSource",
+                requested_by AS "requestedBy",
+                status,
+                summary,
+                started_at AS "startedAt",
+                finished_at AS "finishedAt"
     `,
     [jobKey, triggerSource, requestedBy],
   );
@@ -29,9 +37,18 @@ async function finishJobRun(id, { status, summary = {} }) {
   const result = await pool.query(
     `
       UPDATE scheduled_job_runs
-      SET status = $2, summary = $3::jsonb, finished_at = NOW()
+      SET status = $2,
+          summary = $3::jsonb,
+          finished_at = NOW()
       WHERE id = $1
-      RETURNING id, job_key AS "jobKey", trigger_source AS "triggerSource", requested_by AS "requestedBy", status, summary, started_at AS "startedAt", finished_at AS "finishedAt"
+      RETURNING id,
+                job_key AS "jobKey",
+                trigger_source AS "triggerSource",
+                requested_by AS "requestedBy",
+                status,
+                summary,
+                started_at AS "startedAt",
+                finished_at AS "finishedAt"
     `,
     [id, status, JSON.stringify(summary || {})],
   );
@@ -41,7 +58,14 @@ async function finishJobRun(id, { status, summary = {} }) {
 async function listScheduledJobRuns({ limit = 20 } = {}) {
   const result = await pool.query(
     `
-      SELECT id, job_key AS "jobKey", trigger_source AS "triggerSource", requested_by AS "requestedBy", status, summary, started_at AS "startedAt", finished_at AS "finishedAt"
+      SELECT id,
+             job_key AS "jobKey",
+             trigger_source AS "triggerSource",
+             requested_by AS "requestedBy",
+             status,
+             summary,
+             started_at AS "startedAt",
+             finished_at AS "finishedAt"
       FROM scheduled_job_runs
       ORDER BY started_at DESC
       LIMIT $1
@@ -135,15 +159,16 @@ async function runAlertScan({ requestedBy = 'scheduler', triggerSource = 'schedu
     openAlertsCount: openAlerts.length,
     criticalAlertsCount: openAlerts.filter((item) => item.severity === 'critical').length,
   };
+
   publish('scheduler.alert_scan', result);
   return result;
 }
 
 async function runNamedJob(jobKey, { requestedBy = 'scheduler', triggerSource = 'scheduler' } = {}) {
   const run = await createJobRun({ jobKey, requestedBy, triggerSource });
-
   try {
     let output;
+
     if (jobKey === 'execution_healthcheck') {
       output = await runExecutionHealthCheck({ requestedBy });
     } else if (jobKey === 'execution_reconciliation') {
@@ -156,17 +181,11 @@ async function runNamedJob(jobKey, { requestedBy = 'scheduler', triggerSource = 
       output = await insertObservabilitySnapshot({ source: triggerSource });
       await cleanupObservabilitySnapshots();
     } else if (jobKey === 'training_recalibration') {
-      output = await runTrainingRecalibration({
-        requestedBy,
-        triggerSource,
-        autoApply: true,
-      });
+      output = await runTrainingRecalibration({ requestedBy, triggerSource, autoApply: true });
     } else if (jobKey === 'governance_assessment') {
-      output = await insertGovernanceReport({
-        requestedBy,
-        triggerSource,
-        autoEscalate: true,
-      });
+      output = await insertGovernanceReport({ requestedBy, triggerSource, autoEscalate: true });
+    } else if (jobKey === 'testnet_supervision') {
+      output = await insertTestnetSupervisionReport({ requestedBy, triggerSource, autoRollback: true });
     } else {
       throw new Error(`unknown_job_key:${jobKey}`);
     }
@@ -195,7 +214,7 @@ function startSchedulers() {
   if (started || !env.scheduling.enabled) return;
   started = true;
 
-  ['readiness_assessment', 'alert_scan', 'observability_snapshot', 'governance_assessment'].forEach((jobKey) => {
+  ['readiness_assessment', 'alert_scan', 'observability_snapshot', 'governance_assessment', 'testnet_supervision'].forEach((jobKey) => {
     setTimeout(() => {
       runNamedJob(jobKey, { requestedBy: `startup:${jobKey}`, triggerSource: 'startup' }).catch((error) => {
         console.error(`Startup job failed [${jobKey}]:`, error.message);
@@ -210,6 +229,7 @@ function startSchedulers() {
   scheduleEvery('observability_snapshot', env.scheduling.observabilitySnapshotIntervalSec);
   scheduleEvery('governance_assessment', env.scheduling.governanceIntervalSec || env.scheduling.observabilitySnapshotIntervalSec);
   scheduleEvery('training_recalibration', env.scheduling.trainingRecalibrationIntervalSec);
+  scheduleEvery('testnet_supervision', env.scheduling.testnetSupervisionIntervalSec || env.scheduling.healthcheckIntervalSec || 300);
 }
 
 function stopSchedulers() {

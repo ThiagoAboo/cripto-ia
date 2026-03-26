@@ -1,17 +1,19 @@
 {
-  "stage": 31,
-  "slug": "social-worker-maturidade",
-  "title": "Etapa 31 — maturidade do social worker",
-  "created_by": "OpenAI",
-  "files": [
-    "backend/src/services/socialIntelligence.service.js",
-    "backend/src/routes/social.routes.js",
-    "backend/tests/socialIntelligence.service.test.cjs",
-    "frontend/src/lib/social-intelligence.js",
-    "frontend/src/lib/social-intelligence.test.js",
-    "social-worker/social_model.py",
-    "social-worker/tests/test_social_model.py",
-    "docs/ETAPA-31.md",
+  "stage": 32,
+  "name": "testnet-live-governanca-forte",
+  "created_at": "2026-03-26T21:30:00Z",
+  "contents": [
+    "backend/src/services/liveGovernance.service.js",
+    "backend/src/routes/control.routes.js",
+    "backend/src/services/scheduler.service.js",
+    "backend/src/db/migrations/032_live_governance.sql",
+    "backend/tests/helpers/load-with-mocks.cjs",
+    "backend/tests/liveGovernance.service.test.cjs",
+    "backend/tests/control.routes.live.test.cjs",
+    "backend/tests/scheduler.live-governance.test.cjs",
+    "frontend/src/lib/live-governance.js",
+    "frontend/src/lib/live-governance.test.js",
+    "docs/ETAPA-32.md",
     "docs/COMO-APLICAR.md"
   ]
 }
