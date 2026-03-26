@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
-./scripts/test-backend.sh
-./scripts/test-frontend.sh
+bash scripts/test-backend.sh
+bash scripts/test-frontend.sh

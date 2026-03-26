@@ -1,7 +1,6 @@
-const Module = require('node:module');
+const Module = require('module');
 
-function loadWithMocks(targetPath, mocks = {}) {
-  const resolvedTarget = require.resolve(targetPath);
+function loadWithMocks(modulePath, mocks = {}) {
   const originalLoad = Module._load;
 
   Module._load = function patchedLoad(request, parent, isMain) {
@@ -11,15 +10,12 @@ function loadWithMocks(targetPath, mocks = {}) {
     return originalLoad.call(this, request, parent, isMain);
   };
 
-  delete require.cache[resolvedTarget];
-
   try {
-    return require(resolvedTarget);
+    delete require.cache[require.resolve(modulePath)];
+    return require(modulePath);
   } finally {
     Module._load = originalLoad;
   }
 }
 
-module.exports = {
-  loadWithMocks,
-};
+module.exports = { loadWithMocks };

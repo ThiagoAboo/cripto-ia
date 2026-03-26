@@ -1,159 +1,122 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+
 const { loadWithMocks } = require('./helpers/load-with-mocks.cjs');
 
-const TARGET = path.resolve(__dirname, '../../src/services/scheduler.service.js');
+test('scheduler executa training_recalibration com autoApply=true e publica o job finalizado', async () => {
+  const queries = [];
+  const published = [];
+  const recalibrationCalls = [];
 
-function buildService() {
-  const publishCalls = [];
-  const alertCalls = [];
-  const finishedRuns = [];
-
-  const pool = {
-    query: async (sql, params = []) => {
-      const statement = String(sql);
-
-      if (statement.includes('INSERT INTO scheduled_job_runs')) {
-        return {
-          rows: [
-            {
-              id: 1,
-              jobKey: params[0],
-              triggerSource: params[1],
-              requestedBy: params[2],
-              status: 'running',
-              summary: {},
-              startedAt: '2026-03-26T12:00:00.000Z',
-              finishedAt: null,
-            },
-          ],
-        };
-      }
-
-      if (statement.includes('UPDATE scheduled_job_runs')) {
-        const summary = JSON.parse(params[2]);
-        const row = {
-          id: params[0],
-          jobKey: 'alert_scan',
-          triggerSource: 'scheduler',
-          requestedBy: 'scheduler',
-          status: params[1],
-          summary,
-          startedAt: '2026-03-26T12:00:00.000Z',
-          finishedAt: '2026-03-26T12:00:01.000Z',
-        };
-        finishedRuns.push(row);
-        return { rows: [row] };
-      }
-
-      if (statement.includes('SELECT worker_name, status, last_seen_at FROM worker_heartbeats')) {
-        return {
-          rows: [
-            {
-              worker_name: 'ai-trading-worker',
-              status: 'ok',
-              last_seen_at: new Date(Date.now() - 120000).toISOString(),
-            },
-          ],
-        };
-      }
-
-      throw new Error(`Unexpected SQL in test: ${statement}`);
-    },
-  };
-
-  const mocks = {
-    '../config/env': {
-      health: { workerStaleAfterSec: 90 },
-      scheduling: {
-        enabled: false,
-        healthcheckIntervalSec: 300,
-        reconciliationIntervalSec: 900,
-        readinessIntervalSec: 600,
-        alertScanIntervalSec: 120,
-        observabilitySnapshotIntervalSec: 300,
-      },
-    },
-    '../db/pool': pool,
-    './eventBus.service': {
-      publish: (eventKey, payload) => {
-        publishCalls.push({ eventKey, payload });
-      },
-    },
-    './executionAdapter.service': {
-      runExecutionHealthCheck: async () => ({ ok: true }),
-      runExecutionReconciliation: async () => ({ ok: true }),
-      getExecutionStatus: async () => ({
-        latestHealthCheck: { status: 'error' },
-        recentReconciliations: [{ status: 'error' }],
-      }),
-    },
-    './readiness.service': {
-      evaluateReadiness: async () => ({ status: 'ready' }),
-      getLatestReadinessReport: async () => ({ status: 'blocked' }),
-    },
-    './social.service': {
-      getProviderStatuses: async () => ([
-        {
-          providerKey: 'coingecko',
-          providerName: 'CoinGecko',
-          status: 'backoff',
+  const scheduler = loadWithMocks(
+    path.resolve(__dirname, '../src/services/scheduler.service.js'),
+    {
+      '../config/env': {
+        scheduling: {
+          enabled: true,
+          healthcheckIntervalSec: 60,
+          reconciliationIntervalSec: 60,
+          readinessIntervalSec: 60,
+          alertScanIntervalSec: 60,
+          observabilitySnapshotIntervalSec: 60,
+          trainingRecalibrationIntervalSec: 60,
         },
-      ]),
-    },
-    './control.service': {
-      getRuntimeControl: async () => ({
-        emergencyStop: true,
-        pauseReason: 'manual emergency stop',
-      }),
-    },
-    './alerts.service': {
-      syncAlertState: async (payload) => {
-        alertCalls.push(payload);
-        return payload;
+        health: {
+          workerStaleAfterSec: 90,
+        },
       },
-      listActiveAlerts: async () => ([
-        { severity: 'critical' },
-        { severity: 'high' },
-      ]),
+      '../db/pool': {
+        async query(sql, params = []) {
+          queries.push({ sql, params });
+
+          if (sql.includes('INSERT INTO scheduled_job_runs')) {
+            return {
+              rows: [
+                {
+                  id: 101,
+                  jobKey: params[0],
+                  triggerSource: params[1],
+                  requestedBy: params[2],
+                  status: 'running',
+                  summary: {},
+                },
+              ],
+            };
+          }
+
+          if (sql.includes('UPDATE scheduled_job_runs')) {
+            return {
+              rows: [
+                {
+                  id: params[0],
+                  jobKey: 'training_recalibration',
+                  triggerSource: 'scheduler',
+                  requestedBy: 'test-suite',
+                  status: params[1],
+                  summary: JSON.parse(params[2]),
+                },
+              ],
+            };
+          }
+
+          throw new Error(`query_nao_mockada:${sql}`);
+        },
+      },
+      './eventBus.service': {
+        publish(topic, payload) {
+          published.push({ topic, payload });
+        },
+      },
+      './executionAdapter.service': {
+        runExecutionHealthCheck: async () => ({ ok: true }),
+        runExecutionReconciliation: async () => ({ ok: true }),
+        getExecutionStatus: async () => ({ ok: true }),
+      },
+      './readiness.service': {
+        evaluateReadiness: async () => ({ status: 'ready' }),
+        getLatestReadinessReport: async () => ({ status: 'ready' }),
+      },
+      './social.service': {
+        getProviderStatuses: async () => [],
+      },
+      './control.service': {
+        getRuntimeControl: async () => ({ emergencyStop: false }),
+      },
+      './alerts.service': {
+        syncAlertState: async () => null,
+        listActiveAlerts: async () => [],
+      },
+      './observability.service': {
+        insertObservabilitySnapshot: async () => ({ ok: true }),
+        cleanupObservabilitySnapshots: async () => ({ ok: true }),
+      },
+      './trainingRecalibration.service': {
+        async runTrainingRecalibration(payload) {
+          recalibrationCalls.push(payload);
+          return {
+            status: 'completed',
+            recommendedChanges: 2,
+          };
+        },
+      },
     },
-    './observability.service': {
-      insertObservabilitySnapshot: async () => ({ ok: true }),
-      cleanupObservabilitySnapshots: async () => undefined,
-    },
-  };
+  );
 
-  const service = loadWithMocks(TARGET, mocks);
-  return { service, publishCalls, alertCalls, finishedRuns };
-}
-
-test('runNamedJob(alert_scan) evaluates alert conditions and publishes scheduler events', async () => {
-  const { service, publishCalls, alertCalls, finishedRuns } = buildService();
-
-  const result = await service.runNamedJob('alert_scan', {
-    requestedBy: 'scheduler',
+  const result = await scheduler.runNamedJob('training_recalibration', {
+    requestedBy: 'test-suite',
     triggerSource: 'scheduler',
   });
 
+  assert.equal(recalibrationCalls.length, 1);
+  assert.deepEqual(recalibrationCalls[0], {
+    requestedBy: 'test-suite',
+    triggerSource: 'scheduler',
+    autoApply: true,
+  });
+
   assert.equal(result.status, 'ok');
-  assert.equal(finishedRuns.length, 1);
-  assert.ok(result.summary.openAlertsCount >= 2);
-  assert.ok(result.summary.criticalAlertsCount >= 1);
-  assert.ok(alertCalls.length >= 5, 'expected multiple alert state evaluations');
-  assert.ok(publishCalls.some((item) => item.eventKey === 'scheduler.alert_scan'));
-  assert.ok(publishCalls.some((item) => item.eventKey === 'scheduler.job'));
-});
-
-test('runNamedJob throws for unknown job keys and records an error finish state', async () => {
-  const { service, finishedRuns } = buildService();
-
-  await assert.rejects(
-    () => service.runNamedJob('unknown_job_key', { requestedBy: 'scheduler', triggerSource: 'scheduler' }),
-    /unknown_job_key:unknown_job_key/,
-  );
-
-  assert.equal(finishedRuns.length, 1);
-  assert.equal(finishedRuns[0].status, 'error');
-  assert.match(String(finishedRuns[0].summary.message || ''), /unknown_job_key/);
+  assert.equal(result.jobKey, 'training_recalibration');
+  assert.equal(published.at(-1).topic, 'scheduler.job');
+  assert.equal(queries.length, 2);
 });

@@ -1,49 +1,56 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
 import {
   DEFAULT_CONFIG,
+  deepMerge,
   mergeConfigWithDefaults,
   updateAtPath,
   parseNumberInput,
   traduzirRegime,
   traduzirEspecialista,
-  traduzirSimNao,
+  traduzirChaveJob,
 } from './dashboard.js';
 
-test('mergeConfigWithDefaults preserves defaults and applies nested overrides', () => {
-  const merged = mergeConfigWithDefaults({
-    trading: {
-      enabled: true,
-      symbols: ['BTCUSDT'],
-    },
-    training: {
-      minQualityScoreForApply: 0.66,
-    },
+test('deepMerge preserva base e aplica override apenas onde necessário', () => {
+  const result = deepMerge(
+    { a: 1, nested: { enabled: true, threshold: 10 } },
+    { nested: { threshold: 25 } },
+  );
+
+  assert.deepEqual(result, {
+    a: 1,
+    nested: { enabled: true, threshold: 25 },
+  });
+});
+
+test('mergeConfigWithDefaults aplica defaults nas chaves ausentes', () => {
+  const result = mergeConfigWithDefaults({
+    trading: { enabled: true },
+    training: { enabled: false },
   });
 
-  assert.equal(merged.trading.enabled, true);
-  assert.deepEqual(merged.trading.symbols, ['BTCUSDT']);
-  assert.equal(merged.training.minQualityScoreForApply, 0.66);
-  assert.equal(merged.execution.live.enabled, DEFAULT_CONFIG.execution.live.enabled);
+  assert.equal(result.trading.enabled, true);
+  assert.equal(result.trading.mode, DEFAULT_CONFIG.trading.mode);
+  assert.equal(result.training.enabled, false);
+  assert.equal(result.training.evaluationWindowDays, DEFAULT_CONFIG.training.evaluationWindowDays);
 });
 
-test('updateAtPath updates nested fields without mutating the original object', () => {
-  const original = mergeConfigWithDefaults();
-  const updated = updateAtPath(original, 'risk.maxRiskPerTradePct', 2.5);
+test('updateAtPath atualiza caminho profundo sem mutar o objeto base', () => {
+  const base = mergeConfigWithDefaults();
+  const next = updateAtPath(base, 'training.minQualityScoreForApply', 0.73);
 
-  assert.notEqual(updated, original);
-  assert.equal(updated.risk.maxRiskPerTradePct, 2.5);
-  assert.equal(original.risk.maxRiskPerTradePct, DEFAULT_CONFIG.risk.maxRiskPerTradePct);
+  assert.equal(base.training.minQualityScoreForApply, 0.56);
+  assert.equal(next.training.minQualityScoreForApply, 0.73);
 });
 
-test('parseNumberInput returns fallback for invalid values', () => {
-  assert.equal(parseNumberInput('42.5', 0), 42.5);
-  assert.equal(parseNumberInput('abc', 7), 7);
+test('parseNumberInput retorna fallback para valores inválidos', () => {
+  assert.equal(parseNumberInput('12.5', 0), 12.5);
+  assert.equal(parseNumberInput('abc', 9), 9);
 });
 
-test('translation helpers map known keys to labels in pt-BR', () => {
+test('tradutores principais retornam rótulos em português', () => {
   assert.equal(traduzirRegime('trend_bull'), 'tendência de alta');
-  assert.equal(traduzirEspecialista('risk'), 'risco');
-  assert.equal(traduzirSimNao(true), 'sim');
-  assert.equal(traduzirSimNao(false), 'não');
+  assert.equal(traduzirEspecialista('volatility'), 'volatilidade');
+  assert.equal(traduzirChaveJob('observability_snapshot'), 'instantâneo de observabilidade');
 });
