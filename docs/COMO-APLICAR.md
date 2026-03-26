@@ -1,49 +1,57 @@
-# Como aplicar a Etapa 33
+# Como aplicar a Etapa 34
 
-## 1. Backend
-Copie:
-- `backend/src/services/systemManifest.service.js`
-- `backend/src/routes/system.routes.js`
-- `backend/src/contracts/public-api.contract.json`
+## 1. Descompacte o pacote
 
-E registre a rota em `backend/src/app.js`:
+Extraia o ZIP em uma pasta temporária.
+
+## 2. Aplique a árvore cumulativa
+
+Exemplo:
+
+```bash
+bash scripts/apply-cumulative-package.sh /caminho/para/seu/cripto-ia
+```
+
+O script:
+
+- cria backup local dos arquivos que serão sobrescritos;
+- copia tudo de `patch/` para o repositório-alvo;
+- preserva a estrutura das pastas.
+
+## 3. Revise os pontos manuais
+
+### 3.1 `backend/src/app.js`
+Garanta que exista:
 
 ```js
 const systemRoutes = require('./routes/system.routes');
 app.use('/api/system', systemRoutes);
 ```
 
-## 2. Frontend
-Copie:
-- `frontend/src/lib/contracts.js`
-- `frontend/src/lib/system-manifest.js`
+### 3.2 migrations
+Se o seu fluxo usa migrations formais, aplique:
 
-Use estes helpers em páginas de governança, observabilidade ou dashboard técnico.
-
-## 3. AI e Social Worker
-Copie as pastas:
-- `ai/app/`
-- `social-worker/app/`
-
-Elas não substituem o runtime atual. Elas servem como **landing zone** para migrar funções de `main.py` aos poucos.
-
-## 4. Testes
-Backend:
 ```bash
-node --test backend/tests/systemManifest.service.test.cjs backend/tests/system.routes.test.cjs
+backend/src/db/migrations/032_live_governance.sql
 ```
 
-Frontend:
+### 3.3 schema
+Compare o `backend/src/db/schema.js` atual com o cumulativo do pacote antes de substituir em produção.
+
+## 4. Rode a checagem estrutural
+
 ```bash
-node --test frontend/src/lib/contracts.test.js frontend/src/lib/system-manifest.test.js
+bash scripts/check-cumulative-package.sh /caminho/para/seu/cripto-ia
 ```
 
-Python:
+## 5. Rode os smoke tests pós-merge
+
 ```bash
-python -m unittest ai.tests.test_runtime_state ai.tests.test_service_manifest social-worker.tests.test_runtime_state social-worker.tests.test_service_manifest
+bash scripts/run-post-merge-smoke.sh /caminho/para/seu/cripto-ia
 ```
 
-## 5. Auditoria de manutenção
+## 6. Rode a auditoria de manutenção
+
 ```bash
-bash scripts/maintenance-audit.sh .
+bash /caminho/para/seu/cripto-ia/scripts/maintenance-audit.sh /caminho/para/seu/cripto-ia
 ```

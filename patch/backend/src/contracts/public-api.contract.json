@@ -1,0 +1,38 @@
+{
+  "version": "2026-03",
+  "areas": {
+    "core": [
+      "/api/health",
+      "/api/config",
+      "/api/status"
+    ],
+    "market": [
+      "/api/market",
+      "/api/portfolio",
+      "/api/decisions"
+    ],
+    "training": [
+      "/api/training/summary",
+      "/api/training/runtime",
+      "/api/training/regime-presets",
+      "/api/training/expert-reports"
+    ],
+    "ops": [
+      "/api/alerts",
+      "/api/readiness",
+      "/api/observability",
+      "/api/incidents",
+      "/api/control"
+    ],
+    "system": [
+      "/api/system/manifest",
+      "/api/system/maintenance-checklist",
+      "/api/system/contracts/public-api"
+    ]
+  },
+  "compatibility_notes": [
+    "new endpoints should be additive whenever possible",
+    "breaking response changes should bump version",
+    "frontend helpers should pin expected contract version"
+  ]
+}
