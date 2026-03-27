@@ -1,0 +1,194 @@
+/* Pente-fino fase 4: densidade visual, listas, tabelas e estados vazios */
+
+.workspace__header {
+  padding: 22px 24px;
+  align-items: center;
+}
+
+.workspace__header > div:first-child {
+  min-width: 0;
+}
+
+.workspace__header h2 {
+  letter-spacing: -0.02em;
+}
+
+.workspace__subtitle {
+  max-width: 72ch;
+}
+
+.section-subtitle {
+  margin: 0 0 10px;
+  color: rgba(219, 229, 255, 0.72);
+  line-height: 1.55;
+}
+
+.panel,
+.section,
+.workspace__header,
+.workspace__sidebar,
+.workspace__nav-item,
+.stat-card {
+  box-shadow: 0 18px 42px rgba(2, 8, 24, 0.26);
+}
+
+.section,
+.panel,
+.stat-card {
+  border: 1px solid rgba(116, 148, 255, 0.12);
+}
+
+.list-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.list-item {
+  padding: 14px 16px;
+  border: 1px solid rgba(116, 148, 255, 0.12);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(15, 24, 45, 0.88) 0%, rgba(10, 17, 33, 0.92) 100%);
+}
+
+.list-item--column {
+  gap: 6px;
+}
+
+.list-item strong {
+  color: #f5f8ff;
+}
+
+.muted {
+  color: rgba(205, 216, 247, 0.75);
+}
+
+.phase4-table-shell {
+  border: 1px solid rgba(116, 148, 255, 0.12);
+  border-radius: 18px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(13, 22, 42, 0.92) 0%, rgba(9, 16, 31, 0.96) 100%);
+}
+
+.phase4-table-scroll {
+  overflow-x: auto;
+}
+
+.phase4-table-shell table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.phase4-table-shell thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(11, 18, 35, 0.98);
+  backdrop-filter: blur(10px);
+  color: rgba(200, 214, 255, 0.74);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.phase4-table-shell th,
+.phase4-table-shell td {
+  padding: 13px 16px;
+  text-align: left;
+  border-bottom: 1px solid rgba(116, 148, 255, 0.09);
+  vertical-align: top;
+}
+
+.phase4-table-shell tbody tr:hover {
+  background: rgba(87, 120, 255, 0.08);
+}
+
+.phase4-table-shell tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.phase4-table-shell td strong {
+  display: block;
+  color: #f5f8ff;
+}
+
+.phase4-inline-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.phase4-inline-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(116, 148, 255, 0.14);
+  background: rgba(12, 20, 38, 0.76);
+  color: rgba(224, 232, 255, 0.9);
+  font-size: 0.93rem;
+}
+
+.phase4-inline-pill strong {
+  color: #f5f8ff;
+}
+
+.phase4-empty {
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px dashed rgba(116, 148, 255, 0.22);
+  background: rgba(9, 16, 31, 0.55);
+}
+
+.phase4-empty strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.phase4-kpi-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.phase4-card-caption {
+  font-size: 0.84rem;
+  color: rgba(205, 216, 247, 0.72);
+  line-height: 1.5;
+}
+
+.phase4-card-caption strong {
+  color: #f5f8ff;
+}
+
+.phase4-grid-tight {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 1100px) {
+  .phase4-grid-tight {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace__header {
+    padding: 18px;
+    align-items: flex-start;
+  }
+
+  .phase4-table-shell table {
+    min-width: 640px;
+  }
+
+  .phase4-inline-note {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
