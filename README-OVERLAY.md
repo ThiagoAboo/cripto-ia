@@ -1,22 +1,21 @@
-# Fase 5 Hotfix
+# Overlay — Dashboard: um único card de taxas
 
-Este overlay corrige o crash do Dashboard quando um `StatCard` recebe um objeto
-no `value` ou `hint`, o que estava derrubando toda a tela em preto no frontend.
+Este overlay remove a duplicidade do card de PnL no dashboard.
 
-## Arquivos
-- `frontend/src/components/StatCard.jsx`
-- `frontend/src/pages/DashboardPage.jsx`
+## O que muda
+- mantém apenas **um** card de `PnL realizado`
+- exibe as taxas em duas linhas dentro do mesmo card:
+  - `Taxas USDT` (ou moeda base)
+  - `Taxas BNB`
 
 ## Como aplicar
-Extraia este ZIP na raiz do projeto e aceite sobrescrever os arquivos.
-Depois reinicie o frontend:
+1. Extraia este ZIP na raiz do projeto.
+2. Aceite sobrescrever.
+3. Rebuild do frontend no Docker:
 
 ```powershell
-cd D:\Projetos\cripto-ia\frontend
-npm run dev
+cd D:\Projetos\cripto-ia
+docker compose up --build -d frontend
 ```
 
-## O que foi corrigido
-- `StatCard` agora converte objetos em texto seguro, em vez de tentar renderizar o objeto cru.
-- `DashboardPage` ficou mais defensivo para arrays e chaves.
-- O card de PnL mostra `Taxas USDT` e `Taxas BNB` separadamente.
+4. Atualize o navegador com `Ctrl + F5`.

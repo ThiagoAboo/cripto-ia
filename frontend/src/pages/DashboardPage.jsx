@@ -70,6 +70,42 @@ export default function DashboardPage({ ctx }) {
   const topClassifications = safeArray(socialSummary?.topClassifications).slice(0, 4);
   const { baseFee, bnbFee } = readFeeBreakdown(currentPortfolio);
 
+  const feeHint = (
+    <>
+      <span>Taxas {baseCurrency}: {formatMoney(baseFee, baseCurrency)}</span>
+      <br />
+      <span>Taxas BNB: {formatNumber(bnbFee, 6)} BNB</span>
+    </>
+  );
+
+  const normalizedSummaryCards = safeArray(summaryCards);
+  const pnlCardIndex = normalizedSummaryCards.findIndex((card) => {
+    const fingerprint = `${card?.key || ''} ${card?.id || ''} ${card?.label || ''}`.toLowerCase();
+    return fingerprint.includes('pnl') || fingerprint.includes('realized');
+  });
+
+  const cardsToRender = (() => {
+    const cards = normalizedSummaryCards.slice();
+
+    const realizedPnlCard = {
+      key: 'realized-pnl-fees',
+      label: 'PnL realizado',
+      value: formatMoney(currentPortfolio?.realizedPnl || 0, baseCurrency),
+      tone: Number(currentPortfolio?.realizedPnl || 0) >= 0 ? 'positive' : 'danger',
+      hint: feeHint,
+    };
+
+    if (pnlCardIndex >= 0) {
+      cards[pnlCardIndex] = {
+        ...cards[pnlCardIndex],
+        ...realizedPnlCard,
+      };
+      return cards;
+    }
+
+    return [...cards, realizedPnlCard];
+  })();
+
   return (
     <div className="page-stack">
       <Section
@@ -77,20 +113,12 @@ export default function DashboardPage({ ctx }) {
         subtitle="Visão executiva da operação, do capital simulado, dos riscos e da atividade mais recente do sistema."
       >
         <div className="stats-grid">
-          {safeArray(summaryCards).map((card, index) => (
+          {cardsToRender.map((card, index) => (
             <StatCard
               key={card.key || card.id || `${card.label || 'card'}-${index}`}
               {...card}
             />
           ))}
-
-          <StatCard
-            key="realized-pnl-fees"
-            label="PnL realizado"
-            value={formatMoney(currentPortfolio?.realizedPnl || 0, baseCurrency)}
-            tone={Number(currentPortfolio?.realizedPnl || 0) >= 0 ? 'positive' : 'danger'}
-            hint={`Taxas ${baseCurrency}: ${formatMoney(baseFee, baseCurrency)} • Taxas BNB: ${formatNumber(bnbFee, 6)} BNB`}
-          />
         </div>
       </Section>
 
