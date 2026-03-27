@@ -1,53 +1,28 @@
-# Overlay — layout opção 3 + página Mercado
+# Overlay — Mercado fase seguinte
 
-Este pacote foi montado em cima do estado atual do GitHub do projeto.
+Baseado no estado atual do GitHub em que:
+- `MercadoPage.jsx` já existe no frontend;
+- `App.jsx` já inclui a página `mercado`;
+- `dashboard-pages.js` já define a navegação da tela;
+- o backend já expõe `/api/market/symbols`, `/api/market/tickers` e `/api/market/candles/:symbol`.
 
 ## O que entra
-- novo layout do dashboard inspirado na opção 3 escolhida
-- nova página **Mercado** com:
-  - seleção de base do par (USDT, BRL, BTC, ETH)
-  - lista de pares carregada do backend em `/api/market/symbols`
-  - mini gráficos por ativo com candles recentes
-  - variação das últimas 24h usando `/api/market/tickers`
-- textos em português-BR
-- atalhos visuais para telas relacionadas
+- favoritos por ativo com persistência local;
+- presets rápidos da watchlist;
+- filtro por base de conversão (`USDT`, `BRL`, `BTC`, `ETH`, `BNB`);
+- escolha de intervalo para o mini gráfico;
+- comparação lado a lado entre dois pares;
+- atalhos rápidos para Dashboard, Operações, Execução e Social;
+- textos em português-BR.
 
 ## Arquivos sobrescritos
-- `frontend/src/App.jsx`
-- `frontend/src/main.jsx`
-- `frontend/src/components/AppShell.jsx`
-- `frontend/src/components/SidebarNav.jsx`
-- `frontend/src/hooks/useDashboardController.js`
-- `frontend/src/lib/api.js`
-- `frontend/src/lib/dashboard-pages.js`
-- `frontend/src/pages/DashboardPage.jsx`
-
-## Arquivos novos
-- `frontend/src/components/SparklineChart.jsx`
 - `frontend/src/pages/MercadoPage.jsx`
-- `frontend/src/styles.option3.css`
+- `frontend/src/main.jsx`
+- `frontend/src/styles.phase6.css`
+- `frontend/src/lib/dashboard-pages.js`
 
-## Como aplicar
-1. extraia o ZIP na raiz do projeto
-2. aceite sobrescrever
-3. rode:
-
+## Aplicação no seu fluxo Docker
 ```powershell
 cd D:\Projetos\cripto-ia
 docker compose up --build -d frontend backend
 ```
-
-## Validação rápida
-```powershell
-curl.exe -fsS http://localhost:4000/api/market/symbols?quoteAsset=USDT
-curl.exe -fsS "http://localhost:4000/api/market/tickers?symbols=BTCUSDT,ETHUSDT"
-```
-
-Depois abra:
-- `http://localhost:5173`
-
-E confira:
-- dashboard com a nova organização
-- página **Mercado** no menu lateral
-- seleção de base e pares funcionando
-- cards com mini gráfico e % 24h

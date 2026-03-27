@@ -1,0 +1,242 @@
+.mercado-page-v2 {
+  gap: 1.25rem;
+}
+
+.market-toolbar,
+.market-select-grid,
+.market-compare-toolbar,
+.market-compare-grid,
+.market-card-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.market-toolbar {
+  grid-template-columns: 180px 180px minmax(220px, 1fr) auto;
+  align-items: end;
+}
+
+.market-toolbar__badges,
+.market-actions-inline,
+.market-card__actions,
+.preset-item__actions,
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.market-select-grid {
+  grid-template-columns: minmax(320px, 1.2fr) minmax(260px, 0.8fr);
+  align-items: start;
+}
+
+.market-side-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.market-panel-card,
+.market-card,
+.market-compare-card,
+.market-select-card {
+  border: 1px solid rgba(123, 163, 255, 0.16);
+  background: rgba(10, 21, 54, 0.78);
+  border-radius: 20px;
+  box-shadow: 0 18px 40px rgba(3, 8, 22, 0.22);
+}
+
+.market-panel-card,
+.market-select-card {
+  padding: 1rem 1rem 1.125rem;
+}
+
+.market-select-card small,
+.market-panel-card small,
+.market-card__header p,
+.market-card__meta span,
+.preset-item small,
+.empty-note {
+  color: rgba(196, 206, 229, 0.8);
+}
+
+.market-panel-card__header,
+.market-card__header,
+.preset-item,
+.market-card__metrics,
+.market-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.market-multiselect {
+  min-height: 18rem;
+}
+
+.preset-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.preset-item {
+  padding: 0.75rem 0.875rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(123, 163, 255, 0.1);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(123, 163, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e9f0ff;
+}
+
+.tag--button {
+  cursor: pointer;
+}
+
+.market-compare-toolbar {
+  grid-template-columns: repeat(2, minmax(180px, 240px));
+}
+
+.market-compare-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.market-compare-card {
+  padding: 1rem 1.1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.market-compare-card strong {
+  font-size: 0.92rem;
+  color: rgba(196, 206, 229, 0.9);
+}
+
+.market-compare-card span {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #f7fbff;
+}
+
+.market-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.market-card {
+  padding: 1.1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.market-card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.market-card__header p {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+}
+
+.market-card__metrics {
+  align-items: flex-end;
+}
+
+.market-card__metrics small,
+.market-card__meta,
+.field--compact span {
+  display: block;
+  font-size: 0.78rem;
+}
+
+.market-card__metrics strong {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 1.12rem;
+}
+
+.market-card__meta {
+  align-items: center;
+  font-size: 0.88rem;
+}
+
+.favorite-toggle {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  border: 1px solid rgba(123, 163, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(233, 240, 255, 0.82);
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+
+.favorite-toggle.is-active {
+  color: #f6c453;
+  border-color: rgba(246, 196, 83, 0.35);
+  background: rgba(246, 196, 83, 0.12);
+}
+
+.positive {
+  color: #37d9a8;
+}
+
+.negative {
+  color: #ff6f86;
+}
+
+.empty-state.compact,
+.empty-state,
+.callout--danger {
+  padding: 1rem 1.1rem;
+  border-radius: 16px;
+}
+
+.empty-state,
+.empty-state.compact {
+  border: 1px dashed rgba(123, 163, 255, 0.18);
+  color: rgba(196, 206, 229, 0.84);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.callout--danger {
+  border: 1px solid rgba(255, 111, 134, 0.26);
+  background: rgba(255, 111, 134, 0.08);
+  color: #ffd8df;
+}
+
+.button--small {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.82rem;
+}
+
+.field--grow {
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .market-toolbar,
+  .market-select-grid,
+  .market-compare-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .market-compare-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .market-compare-toolbar {
+    grid-template-columns: 1fr;
+  }
+}

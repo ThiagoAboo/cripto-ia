@@ -8,8 +8,8 @@ export const DASHBOARD_PAGES = [
   {
     key: 'mercado',
     label: 'Mercado',
-    hint: 'Mini gráficos das moedas selecionadas, com variação nas últimas 24h e atalho para operação.',
-    context: 'Acompanhe os ativos disponíveis na Binance filtrando pelo par-base, como USDT ou BRL.',
+    hint: 'Radar com mini gráficos, favoritos, presets rápidos e comparação lado a lado entre pares da Binance.',
+    context: 'Selecione a base de conversão, monte uma watchlist e use os atalhos para ir direto para operação ou execução.',
   },
   {
     key: 'config',
