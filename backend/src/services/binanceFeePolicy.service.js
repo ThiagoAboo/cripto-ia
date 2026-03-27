@@ -23,8 +23,8 @@ function resolveAppliedFeePct({ config = {}, bnbQuantity = 0 }) {
 
 function evaluateBnbSellGuard({ currentQuantity = 0, quantityToSell = 0, config = {} }) {
   const settings = normalizeExecutionPaperConfig(config);
+  const shouldProtectReserve = settings.useBnbFeeDiscount && settings.minBnbReserveQty > 0;
   const nextQuantity = Number(currentQuantity || 0) - Number(quantityToSell || 0);
-  const shouldProtectReserve = settings.minBnbReserveQty > 0;
   const blocked = shouldProtectReserve && nextQuantity < settings.minBnbReserveQty;
 
   return {

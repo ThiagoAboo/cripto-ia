@@ -3,6 +3,7 @@ const { getActiveConfig } = require('./config.service');
 const { getPaperSettings, ensurePaperAccount } = require('./portfolio.service');
 const { getTickers } = require('./market.service');
 const { getRuntimeControl, getCooldownForSymbol, upsertCooldown, applyRiskGuardrails } = require('./control.service');
+const { resolveAppliedFeePct, evaluateBnbSellGuard } = require('./binanceFeePolicy.service');
 
 function roundTo(value, decimals = 12) {
   return Number(Number(value || 0).toFixed(decimals));
@@ -532,10 +533,30 @@ async function executePaperOrder({
     );
 
     const position = positionResult.rows[0] || null;
+    const bnbFeeSymbol = `BNB${settings.baseCurrency}`;
+    let bnbPosition = null;
+
+    if (normalizedSymbol === bnbFeeSymbol) {
+      bnbPosition = position;
+    } else {
+      const bnbPositionResult = await client.query(
+        `
+          SELECT symbol, quantity
+          FROM paper_positions
+          WHERE account_key = $1 AND symbol = $2 AND status = 'OPEN'
+          LIMIT 1
+        `,
+        [settings.accountKey, bnbFeeSymbol],
+      );
+      bnbPosition = bnbPositionResult.rows[0] || null;
+    }
+
+    const bnbQuantity = Number(bnbPosition?.quantity || 0);
+    const feeResolution = resolveAppliedFeePct({ config, bnbQuantity });
     const priceSource = await refreshPrice(normalizedSymbol);
     const slippageFactor = 1 + ((normalizedSide === 'BUY' ? 1 : -1) * settings.slippagePct / 100);
     const executionPrice = priceSource * slippageFactor;
-    const feeRate = settings.feePct / 100;
+    const feeRate = feeResolution.appliedFeePct / 100;
     const risk = extractRiskPayload(payload, settings);
 
     const account = accountResult.rows[0];
@@ -803,6 +824,12 @@ async function executePaperOrder({
           accountMode: 'paper',
           grossNotional: roundTo(plannedNotional),
           totalCashRequired: roundTo(totalCashRequired),
+          fee: {
+            source: feeResolution.feeSource,
+            appliedFeePct: roundTo(feeResolution.appliedFeePct, 6),
+            bnbQuantity: roundTo(bnbQuantity, 8),
+            minBnbReserveQty: roundTo(feeResolution.minBnbReserveQty, 8),
+          },
           risk: {
             atr: roundTo(atrAtEntry),
             stopLossPrice: roundTo(stopLossPrice),
@@ -844,6 +871,40 @@ async function executePaperOrder({
       quantityToSell = currentQuantity * sellFraction;
     }
     quantityToSell = Math.min(quantityToSell, currentQuantity);
+
+    if (normalizedSymbol === bnbFeeSymbol) {
+      const bnbSellGuard = evaluateBnbSellGuard({
+        currentQuantity,
+        quantityToSell,
+        config,
+      });
+
+      if (bnbSellGuard.blocked) {
+        const rejected = await createRejectedOrder(client, {
+          accountKey: settings.accountKey,
+          workerName,
+          symbol: normalizedSymbol,
+          side: normalizedSide,
+          requestedNotional: Number(requestedNotional || 0),
+          requestedQuantity: quantityToSell,
+          reason,
+          rejectionReason: bnbSellGuard.reason,
+          linkedDecisionId,
+          payload: {
+            ...payload,
+            bnbReserve: {
+              currentQuantity: roundTo(currentQuantity),
+              attemptedSellQuantity: roundTo(quantityToSell),
+              nextQuantity: roundTo(bnbSellGuard.nextQuantity),
+              reserveQty: roundTo(bnbSellGuard.reserveQty),
+            },
+          },
+          slippagePct: settings.slippagePct,
+        });
+        await client.query('COMMIT');
+        return rejected;
+      }
+    }
 
     if (quantityToSell <= 0) {
       const rejected = await createRejectedOrder(client, {
@@ -947,6 +1008,12 @@ async function executePaperOrder({
         netProceeds: roundTo(netProceeds),
         realizedPnl: roundTo(realizedPnl),
         pnlPct: roundTo(pnlPct, 6),
+        fee: {
+          source: feeResolution.feeSource,
+          appliedFeePct: roundTo(feeResolution.appliedFeePct, 6),
+          bnbQuantity: roundTo(bnbQuantity, 8),
+          minBnbReserveQty: roundTo(feeResolution.minBnbReserveQty, 8),
+        },
       },
     });
 

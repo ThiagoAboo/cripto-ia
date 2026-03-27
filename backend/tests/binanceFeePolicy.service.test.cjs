@@ -36,8 +36,18 @@ test('evaluateBnbSellGuard bloqueia venda abaixo da reserva mínima', () => {
   const result = evaluateBnbSellGuard({
     currentQuantity: 0.08,
     quantityToSell: 0.04,
-    config: { execution: { paper: { minBnbReserveQty: 0.05 } } },
+    config: { execution: { paper: { minBnbReserveQty: 0.05, useBnbFeeDiscount: true } } },
   });
   assert.equal(result.blocked, true);
   assert.equal(result.reason, 'bnb_reserve_protection');
+});
+
+test('evaluateBnbSellGuard não protege reserva quando desconto BNB estiver desligado', () => {
+  const result = evaluateBnbSellGuard({
+    currentQuantity: 0.08,
+    quantityToSell: 0.04,
+    config: { execution: { paper: { minBnbReserveQty: 0.05, useBnbFeeDiscount: false } } },
+  });
+  assert.equal(result.blocked, false);
+  assert.equal(result.reason, null);
 });
