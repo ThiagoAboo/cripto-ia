@@ -1,2 +1,7 @@
-Etapa 34: bundle cumulativo de merge + estabilização final das Etapas 25–33.
-Use scripts/apply-cumulative-package.sh para copiar patch/ para o repositório-alvo.
+Pacote da Etapa 28.
+
+Foco:
+- endurecimento do motor de decisão
+- preview de decisão no backend
+- helper de frontend para simulação
+- módulo Python para integrar no worker de AI

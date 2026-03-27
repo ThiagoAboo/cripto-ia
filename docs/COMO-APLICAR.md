@@ -1,57 +1,44 @@
-# Como aplicar a Etapa 34
+# Como aplicar a Etapa 28
 
-## 1. Descompacte o pacote
+## 1. Backend
 
-Extraia o ZIP em uma pasta temporária.
+Copiar para o repositório:
 
-## 2. Aplique a árvore cumulativa
+- `backend/src/services/decisionPolicy.service.js`
+- `backend/src/routes/decisions.routes.js`
+- `backend/tests/helpers/load-with-mocks.cjs`
+- `backend/tests/decisionPolicy.service.test.cjs`
+- `backend/tests/decisions.routes.test.cjs`
 
-Exemplo:
+## 2. Frontend
 
-```bash
-bash scripts/apply-cumulative-package.sh /caminho/para/seu/cripto-ia
-```
+Copiar para o repositório:
 
-O script:
+- `frontend/src/lib/decision-preview.js`
+- `frontend/src/lib/decision-preview.test.js`
 
-- cria backup local dos arquivos que serão sobrescritos;
-- copia tudo de `patch/` para o repositório-alvo;
-- preserva a estrutura das pastas.
+## 3. AI
 
-## 3. Revise os pontos manuais
+Copiar para o repositório:
 
-### 3.1 `backend/src/app.js`
-Garanta que exista:
+- `ai/decision_policy.py`
 
-```js
-const systemRoutes = require('./routes/system.routes');
-app.use('/api/system', systemRoutes);
-```
+## 4. Rodar testes
 
-### 3.2 migrations
-Se o seu fluxo usa migrations formais, aplique:
+### Backend
 
 ```bash
-backend/src/db/migrations/032_live_governance.sql
+cd backend
+node --test tests/*.test.cjs
 ```
 
-### 3.3 schema
-Compare o `backend/src/db/schema.js` atual com o cumulativo do pacote antes de substituir em produção.
-
-## 4. Rode a checagem estrutural
+### Frontend
 
 ```bash
-bash scripts/check-cumulative-package.sh /caminho/para/seu/cripto-ia
+cd frontend
+node --test src/lib/*.test.js
 ```
 
-## 5. Rode os smoke tests pós-merge
+## 5. Integração posterior recomendada
 
-```bash
-bash scripts/run-post-merge-smoke.sh /caminho/para/seu/cripto-ia
-```
-
-## 6. Rode a auditoria de manutenção
-
-```bash
-bash /caminho/para/seu/cripto-ia/scripts/maintenance-audit.sh /caminho/para/seu/cripto-ia
-```
+No próximo passo, o ideal é ligar a política diretamente no worker da AI para que o `effectiveAction` seja o valor realmente usado na execução.

@@ -1,9 +1,18 @@
 {
-  "name": "windows-fix-testes-v2",
-  "purpose": "Corrigir scripts de teste para Windows + VS Code + PowerShell",
-  "changes": [
-    "fix do param em apply-windows-test-fix.ps1",
-    "fallback automático de RepoPath",
-    "scripts de test via diretório no backend e frontend"
+  "stage": 28,
+  "name": "endurecimento-motor-decisao",
+  "summary": "Camada testável de policy para sizing e bloqueios por regime, liquidez, spread, slippage e correlação.",
+  "files": [
+    "backend/src/services/decisionPolicy.service.js",
+    "backend/src/routes/decisions.routes.js",
+    "backend/tests/helpers/load-with-mocks.cjs",
+    "backend/tests/decisionPolicy.service.test.cjs",
+    "backend/tests/decisions.routes.test.cjs",
+    "frontend/src/lib/decision-preview.js",
+    "frontend/src/lib/decision-preview.test.js",
+    "ai/decision_policy.py",
+    "docs/ETAPA-28.md",
+    "docs/COMO-APLICAR.md",
+    "docs/AI-INTEGRACAO.md"
   ]
 }
