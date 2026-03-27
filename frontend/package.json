@@ -7,8 +7,8 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
-    "test": "node --test src/lib/*.test.js",
-    "test:watch": "node --test --watch src/lib/*.test.js"
+    "test": "node --test src/lib",
+    "test:watch": "node --test --watch src/lib"
   },
   "dependencies": {
     "react": "^18.3.1",

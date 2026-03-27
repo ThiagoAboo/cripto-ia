@@ -3,11 +3,10 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { loadWithMocks } = require('./helpers/load-with-mocks.cjs');
 
-const TARGET = path.resolve(__dirname, '../../src/services/trainingAdaptation.service.js');
+const TARGET = path.resolve(__dirname, '../src/services/trainingAdaptation.service.js');
 
 function buildService(overrides = {}) {
   const updateCalls = [];
-
   const defaultMocks = {
     './config.service': {
       getActiveConfig: async () => ({
@@ -59,7 +58,6 @@ function buildService(overrides = {}) {
     },
     ...overrides,
   };
-
   const service = loadWithMocks(TARGET, defaultMocks);
   return { service, updateCalls };
 }
@@ -70,35 +68,27 @@ function sumWeights(weights) {
 
 test('listRegimePresets returns all supported presets with normalized weights', async () => {
   const { service } = buildService();
-
   const result = await service.listRegimePresets({ limit: 10 });
-
   assert.ok(result.baseWeights);
   assert.ok(result.suggestedBase);
   assert.equal(result.presets.length, 5);
-
   const presetKeys = result.presets.map((item) => item.regimeKey).sort();
   assert.deepEqual(presetKeys, ['mixed', 'range', 'trend_bear', 'trend_bull', 'volatile']);
-
   for (const preset of result.presets) {
     const total = sumWeights(preset.weights);
     assert.ok(Math.abs(total - 1) < 0.02, `weights for ${preset.regimeKey} should be normalized`);
     assert.equal(typeof preset.intensity, 'number');
   }
-
   const mixedPreset = result.presets.find((item) => item.regimeKey === 'mixed');
   assert.equal(mixedPreset.isApplied, true);
 });
 
 test('applyRegimePreset updates active config with selected preset and audit metadata', async () => {
   const { service, updateCalls } = buildService();
-
   const result = await service.applyRegimePreset({ regimeKey: 'trend_bull', requestedBy: 'unit-test' });
-
   assert.equal(result.preset.regimeKey, 'trend_bull');
   assert.equal(result.configVersion, 8);
   assert.equal(updateCalls.length, 1);
-
   const [{ nextConfig, audit }] = updateCalls;
   assert.equal(nextConfig.training.activeRegimePreset, 'trend_bull');
   assert.ok(nextConfig.training.expertWeights);
@@ -109,7 +99,6 @@ test('applyRegimePreset updates active config with selected preset and audit met
 
 test('updateTrainingSettings merges defaults, current config and incoming patch', async () => {
   const { service, updateCalls } = buildService();
-
   const result = await service.updateTrainingSettings(
     {
       minQualityScoreForApply: 0.67,
@@ -117,11 +106,9 @@ test('updateTrainingSettings merges defaults, current config and incoming patch'
     },
     { requestedBy: 'unit-test' },
   );
-
   assert.equal(result.settings.minQualityScoreForApply, 0.67);
   assert.equal(result.settings.maxWeightShiftPerRun, 0.05);
   assert.equal(result.settings.autoApplyMode, 'guarded');
-
   assert.equal(updateCalls.length, 1);
   const [{ audit }] = updateCalls;
   assert.equal(audit.actionType, 'training_settings_update');
