@@ -12,6 +12,9 @@ import {
   traduzirAcaoDecisao,
   traduzirClassificacaoSocial,
   traduzirChaveJob,
+  traduzirNivelDrift,
+  traduzirQualidade,
+  traduzirRunbook,
   traduzirSeveridade,
   traduzirStatusGenerico,
 } from '../lib/dashboard';
@@ -20,43 +23,36 @@ function emptyText(value, fallback = '—') {
   return value ?? fallback;
 }
 
-function toNumber(value) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
-function extractFeeBreakdown(currentPortfolio = {}, baseCurrency = 'USDT') {
-  const byCurrency = currentPortfolio?.feesByCurrency || currentPortfolio?.feeBreakdown || {};
-
-  const quoteFee =
-    toNumber(currentPortfolio?.feesPaidQuote) ||
-    toNumber(currentPortfolio?.feesPaidUsdt) ||
-    toNumber(byCurrency?.[baseCurrency]) ||
-    toNumber(byCurrency?.USDT) ||
-    toNumber(currentPortfolio?.feesPaid);
+function readFeeBreakdown(portfolio = {}) {
+  const baseFee =
+    Number(
+      portfolio?.feesPaidQuote ??
+        portfolio?.feesQuote ??
+        portfolio?.feesPaid ??
+        portfolio?.quoteFee ??
+        0,
+    ) || 0;
 
   const bnbFee =
-    toNumber(currentPortfolio?.feesPaidBnb) ||
-    toNumber(currentPortfolio?.bnbFeesPaid) ||
-    toNumber(byCurrency?.BNB) ||
-    toNumber(byCurrency?.bnb);
+    Number(
+      portfolio?.feesPaidBnb ??
+        portfolio?.feesBnb ??
+        portfolio?.bnbFeesPaid ??
+        portfolio?.bnbFee ??
+        0,
+    ) || 0;
 
-  return { quoteFee, bnbFee };
-}
-
-function EmptyState({ title, description }) {
-  return (
-    <div className="phase4-empty">
-      <strong>{title}</strong>
-      <span className="muted">{description}</span>
-    </div>
-  );
+  return { baseFee, bnbFee };
 }
 
 export default function DashboardPage({ ctx }) {
   const {
     summaryCards = [],
-    baseCurrency = 'USDT',
+    baseCurrency,
     currentPortfolio = {},
     currentDecisions = [],
     currentOrders = [],
@@ -65,319 +61,207 @@ export default function DashboardPage({ ctx }) {
     recentJobRuns = [],
     socialSummary,
     providerStatuses = [],
+    recentTrainingRuns = [],
     trainingSummary,
   } = ctx;
 
-  const positions = currentPortfolio?.positions || [];
-  const readinessChecks = (latestReadiness?.checks || []).slice(0, 4);
-  const topClassifications = (socialSummary?.topClassifications || []).slice(0, 4);
-  const { quoteFee, bnbFee } = extractFeeBreakdown(currentPortfolio, baseCurrency);
+  const positions = safeArray(currentPortfolio?.positions);
+  const readinessChecks = safeArray(latestReadiness?.checks).slice(0, 4);
+  const topClassifications = safeArray(socialSummary?.topClassifications).slice(0, 4);
+  const { baseFee, bnbFee } = readFeeBreakdown(currentPortfolio);
 
   return (
     <div className="page-stack">
-      <div className="stats-grid">
-        {summaryCards.map((card, index) => (
-          <StatCard key={card.key || card.id || `${card.label}-${index}`} {...card} />
-        ))}
-      </div>
+      <Section
+        title="Dashboard"
+        subtitle="Visão executiva da operação, do capital simulado, dos riscos e da atividade mais recente do sistema."
+      >
+        <div className="stats-grid">
+          {safeArray(summaryCards).map((card, index) => (
+            <StatCard
+              key={card.key || card.id || `${card.label || 'card'}-${index}`}
+              {...card}
+            />
+          ))}
+
+          <StatCard
+            key="realized-pnl-fees"
+            label="PnL realizado"
+            value={formatMoney(currentPortfolio?.realizedPnl || 0, baseCurrency)}
+            tone={Number(currentPortfolio?.realizedPnl || 0) >= 0 ? 'positive' : 'danger'}
+            hint={`Taxas ${baseCurrency}: ${formatMoney(baseFee, baseCurrency)} • Taxas BNB: ${formatNumber(bnbFee, 6)} BNB`}
+          />
+        </div>
+      </Section>
 
       <div className="dashboard-grid">
         <div className="page-stack">
           <Section
-            title="Prontidão mais recente"
-            subtitle="Leitura consolidada do backend, alertas críticos e checks que podem bloquear operação ou promoção de estratégia."
+            title="Prontidão e alertas"
+            subtitle={`Status geral: ${traduzirStatusGenerico(latestReadiness?.status) || 'sem status'}`}
           >
-            <div className="phase4-kpi-stack">
-              <div className="phase4-grid-tight">
-                <StatCard
-                  label="Status geral"
-                  value={traduzirStatusGenerico(latestReadiness?.status) || 'sem status'}
-                  hint={emptyText(latestReadiness?.summary, 'Aguardando avaliação de readiness.')}
-                />
-                <StatCard
-                  label="Alertas ativos"
-                  value={formatNumber(activeAlerts.length || 0, 0)}
-                  hint={activeAlerts.length ? 'Ver detalhes abaixo.' : 'Nenhum alerta ativo no momento.'}
-                />
-              </div>
-
+            <div className="page-stack">
               {readinessChecks.length ? (
-                <div className="list-stack">
-                  {readinessChecks.map((item, index) => (
-                    <div key={item.key || `${item.label}-${index}`} className="list-item list-item--column">
-                      <strong>{item.label || item.key}</strong>
-                      <span className="muted">{item.message || item.status || 'Sem detalhe adicional.'}</span>
-                    </div>
-                  ))}
-                </div>
+                readinessChecks.map((item, index) => (
+                  <div className="list-row" key={item.key || item.label || index}>
+                    <strong>{item.label || item.key}</strong>
+                    <span>{item.message || item.status || 'Sem detalhe adicional.'}</span>
+                  </div>
+                ))
               ) : (
-                <EmptyState
-                  title="Sem checks recentes"
-                  description="Nenhuma validação de prontidão foi registrada ainda."
-                />
+                <div className="empty-state">Nenhuma validação de prontidão foi registrada ainda.</div>
               )}
             </div>
           </Section>
 
-          <Section
-            title="Alertas e jobs automáticos"
-            subtitle="Incidentes ativos e últimas execuções do scheduler para ajudar a identificar gargalos rápido."
-          >
-            <div className="phase4-grid-tight">
-              <div className="page-stack">
-                <p className="section-subtitle">Alertas ativos</p>
-                {activeAlerts.length ? (
-                  <div className="list-stack">
-                    {activeAlerts.slice(0, 6).map((alert, index) => (
-                      <div key={alert.id || alert.alertKey || `${alert.title}-${index}`} className="list-item list-item--column">
-                        <strong>
-                          {alert.title || alert.alertKey} <span className="muted">• {traduzirSeveridade(alert.severity)}</span>
-                        </strong>
-                        <span className="muted">{alert.message || 'Sem mensagem adicional.'}</span>
-                      </div>
-                    ))}
+          <Section title="Alertas ativos">
+            <div className="page-stack">
+              {activeAlerts.length ? (
+                activeAlerts.slice(0, 6).map((alert, index) => (
+                  <div className="list-row" key={alert.id || alert.alertKey || index}>
+                    <strong>{alert.title || alert.alertKey}</strong>
+                    <span>
+                      {traduzirSeveridade(alert.severity)} • {alert.message || 'Sem mensagem adicional.'}
+                    </span>
                   </div>
-                ) : (
-                  <EmptyState
-                    title="Nenhum alerta ativo"
-                    description="O backend não reportou alertas neste momento."
-                  />
-                )}
-              </div>
+                ))
+              ) : (
+                <div className="empty-state">O backend não reportou alertas neste momento.</div>
+              )}
+            </div>
+          </Section>
 
-              <div className="page-stack">
-                <p className="section-subtitle">Jobs recentes</p>
-                {recentJobRuns.length ? (
-                  <div className="list-stack">
-                    {recentJobRuns.slice(0, 5).map((job, index) => (
-                      <div key={job.id || `job-${index}`} className="list-item list-item--column">
-                        <strong>{traduzirChaveJob(job.jobKey)}</strong>
-                        <span className="muted">
-                          {traduzirStatusGenerico(job.status)} • {formatDateTime(job.createdAt)}
-                        </span>
-                      </div>
-                    ))}
+          <Section title="Jobs recentes">
+            <div className="page-stack">
+              {recentJobRuns.length ? (
+                recentJobRuns.slice(0, 5).map((job, index) => (
+                  <div className="list-row" key={job.id || `${job.jobKey}-${job.createdAt || index}`}>
+                    <strong>{traduzirChaveJob(job.jobKey)}</strong>
+                    <span>
+                      {traduzirStatusGenerico(job.status)} • {formatDateTime(job.createdAt)}
+                    </span>
                   </div>
-                ) : (
-                  <EmptyState
-                    title="Nenhum job registrado"
-                    description="Ainda não há execuções automáticas registradas nesta base."
-                  />
-                )}
-              </div>
+                ))
+              ) : (
+                <div className="empty-state">Ainda não há execuções automáticas registradas nesta base.</div>
+              )}
             </div>
           </Section>
         </div>
 
         <div className="page-stack">
-          <Section
-            title="Patrimônio e exposição"
-            subtitle="Resumo financeiro da carteira simulada, posição atual e custos operacionais já acumulados."
-          >
-            <div className="metric-grid">
-              <StatCard
-                label="Patrimônio"
-                value={formatMoney(currentPortfolio?.equity || 0, baseCurrency)}
-                hint={`Caixa ${formatMoney(currentPortfolio?.cashBalance || 0, baseCurrency)}`}
-              />
-              <StatCard
-                label="PnL realizado"
-                value={formatMoney(currentPortfolio?.realizedPnl || 0, baseCurrency)}
-                tone={(currentPortfolio?.realizedPnl || 0) >= 0 ? 'positive' : 'danger'}
-                hint={`Taxas ${baseCurrency} ${formatMoney(quoteFee, baseCurrency)} • Taxas BNB ${formatNumber(bnbFee, 6)} BNB`}
-              />
-              <StatCard
-                label="Posições abertas"
-                value={formatNumber(positions.length || 0, 0)}
-                hint={`Exposição ${formatPercent(currentPortfolio?.exposurePct || 0)}`}
-              />
-            </div>
-
-            <div className="phase4-inline-note">
-              <div className="phase4-inline-pill">
-                <span>Taxas {baseCurrency}</span>
-                <strong>{formatMoney(quoteFee, baseCurrency)}</strong>
-              </div>
-              <div className="phase4-inline-pill">
-                <span>Taxas BNB</span>
-                <strong>{formatNumber(bnbFee, 6)} BNB</strong>
-              </div>
-            </div>
-
-            <p className="section-subtitle top-gap">Posições</p>
+          <Section title="Posições">
             {positions.length ? (
-              <div className="phase4-table-shell">
-                <div className="phase4-table-scroll compact-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Símbolo</th>
-                        <th>Qtd</th>
-                        <th>Entrada</th>
-                        <th>Preço atual</th>
-                        <th>Não realizado</th>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Símbolo</th>
+                      <th>Qtd</th>
+                      <th>Entrada</th>
+                      <th>Preço atual</th>
+                      <th>Não realizado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {positions.slice(0, 8).map((position, index) => (
+                      <tr key={position.symbol || index}>
+                        <td>{position.symbol}</td>
+                        <td>{formatNumber(position.quantity, 6)}</td>
+                        <td>{formatMoney(position.avgEntryPrice, baseCurrency)}</td>
+                        <td>{formatMoney(position.lastPrice, baseCurrency)}</td>
+                        <td className={(position.unrealizedPnl || 0) >= 0 ? 'text-positive' : 'text-danger'}>
+                          {formatMoney(position.unrealizedPnl || 0, baseCurrency)}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {positions.slice(0, 8).map((position, index) => (
-                        <tr key={position.id || position.symbol || `position-${index}`}>
-                          <td>
-                            <strong>{position.symbol}</strong>
-                          </td>
-                          <td>{formatNumber(position.quantity, 6)}</td>
-                          <td>{formatMoney(position.avgEntryPrice, baseCurrency)}</td>
-                          <td>{formatMoney(position.lastPrice, baseCurrency)}</td>
-                          <td className={(position.unrealizedPnl || 0) >= 0 ? 'text-positive' : 'text-danger'}>
-                            {formatMoney(position.unrealizedPnl || 0, baseCurrency)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             ) : (
-              <EmptyState title="Nenhuma posição aberta" description="A carteira está zerada neste momento." />
+              <div className="empty-state">A carteira está zerada neste momento.</div>
             )}
           </Section>
 
-          <Section
-            title="IA, social e execução"
-            subtitle="Últimos sinais publicados pela IA, ordens recentes e leitura resumida da camada social."
-          >
-            <div className="phase4-grid-tight">
-              <div className="page-stack">
-                <p className="section-subtitle">Decisões recentes</p>
-                {currentDecisions.length ? (
-                  <div className="list-stack">
-                    {currentDecisions.slice(0, 8).map((decision, index) => (
-                      <div key={decision.id || `decision-${index}`} className="list-item list-item--column">
-                        <strong>
-                          {decision.symbol} <span className="muted">• {traduzirAcaoDecisao(decision.action)}</span>
-                        </strong>
-                        <span className="muted">
-                          {formatDateTime(decision.createdAt)} • confiança {formatPercent(decision.confidence || 0)}
-                        </span>
-                        <span className="phase4-card-caption">
-                          <strong>Razão:</strong> {decision.reason || decision.summary || '—'}
-                        </span>
-                      </div>
-                    ))}
+          <Section title="Decisões recentes">
+            <div className="page-stack">
+              {currentDecisions.length ? (
+                currentDecisions.slice(0, 8).map((decision, index) => (
+                  <div className="list-row" key={decision.id || `${decision.symbol}-${decision.createdAt || index}`}>
+                    <strong>
+                      {decision.symbol} • {traduzirAcaoDecisao(decision.action)}
+                    </strong>
+                    <span>
+                      {formatDateTime(decision.createdAt)} • confiança {formatPercent(decision.confidence || 0)}
+                    </span>
+                    <span>Razão: {decision.reason || decision.summary || '—'}</span>
                   </div>
-                ) : (
-                  <EmptyState
-                    title="Nenhuma decisão recente"
-                    description="A IA ainda não publicou sinais nesta base."
-                  />
-                )}
-              </div>
-
-              <div className="page-stack">
-                <p className="section-subtitle">Ordens recentes</p>
-                {currentOrders.length ? (
-                  <div className="list-stack">
-                    {currentOrders.slice(0, 8).map((order, index) => (
-                      <div key={order.id || `order-${index}`} className="list-item list-item--column">
-                        <strong>
-                          {order.symbol} <span className="muted">• {traduzirAcaoDecisao(order.side)}</span>
-                        </strong>
-                        <span className="muted">
-                          {formatDateTime(order.createdAt)} • {traduzirStatusGenerico(order.status)}
-                        </span>
-                        <span className="phase4-card-caption">
-                          <strong>Preço:</strong> {formatMoney(order.price, baseCurrency)} • <strong>PnL:</strong>{' '}
-                          {formatMoney(order.realizedPnl || 0, baseCurrency)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="Nenhuma ordem recente"
-                    description="Ainda não há ordens registradas nesta base."
-                  />
-                )}
-              </div>
-            </div>
-
-            <div className="phase4-grid-tight top-gap">
-              <div className="page-stack">
-                <p className="section-subtitle">Radar social</p>
-                {topClassifications.length ? (
-                  <div className="list-stack">
-                    {topClassifications.map((item, index) => (
-                      <div key={`${item.classification || 'classification'}-${index}`} className="list-item">
-                        <span>{traduzirClassificacaoSocial(item.classification)}</span>
-                        <Pill>{item.count}</Pill>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="Sem classificações recentes"
-                    description="O social worker ainda não publicou classificações consolidadas."
-                  />
-                )}
-              </div>
-
-              <div className="page-stack">
-                <p className="section-subtitle">Saúde dos provedores</p>
-                {providerStatuses.length ? (
-                  <div className="list-stack">
-                    {providerStatuses.map((provider, index) => (
-                      <div key={provider.provider || `provider-${index}`} className="list-item list-item--column">
-                        <strong>{provider.provider}</strong>
-                        <span className="muted">
-                          {traduzirStatusGenerico(provider.status)}
-                          {provider.retryAfterSec ? ` • retry em ${provider.retryAfterSec}s` : ''}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="Sem provedores carregados"
-                    description="Nenhuma telemetria social foi recebida ainda."
-                  />
-                )}
-              </div>
+                ))
+              ) : (
+                <div className="empty-state">A IA ainda não publicou sinais nesta base.</div>
+              )}
             </div>
           </Section>
 
-          <Section
-            title="Runtime e treinamento"
-            subtitle="Resumo do estado de runtime consumido pela IA e da última leitura do módulo de treinamento."
-          >
-            <div className="phase4-grid-tight">
-              <StatCard
-                label="Regime ativo"
-                value={emptyText(trainingSummary?.runtime?.activeRegime || trainingSummary?.activeRegime, '—')}
-                hint={`Qualidade ${emptyText(trainingSummary?.qualityStatus, '—')} • Drift ${emptyText(trainingSummary?.driftStatus, '—')}`}
-              />
-              <StatCard
-                label="Última ação da IA"
-                value={emptyText(trainingSummary?.runtime?.lastAction || currentDecisions?.[0]?.action, '—')}
-                hint={
-                  trainingSummary?.runtime?.status
-                    ? `Runtime ${trainingSummary.runtime.status}`
-                    : 'Aguardando atualização do runtime.'
-                }
-              />
+          <Section title="Ordens recentes">
+            <div className="page-stack">
+              {currentOrders.length ? (
+                currentOrders.slice(0, 8).map((order, index) => (
+                  <div className="list-row" key={order.id || `${order.symbol}-${order.createdAt || index}`}>
+                    <strong>
+                      {order.symbol} • {traduzirAcaoDecisao(order.side)}
+                    </strong>
+                    <span>
+                      {formatDateTime(order.createdAt)} • {traduzirStatusGenerico(order.status)}
+                    </span>
+                    <span>
+                      Preço: {formatMoney(order.price, baseCurrency)} • PnL: {formatMoney(order.realizedPnl || 0, baseCurrency)}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-state">Ainda não há ordens registradas nesta base.</div>
+              )}
             </div>
+          </Section>
 
-            <div className="phase4-inline-note">
-              <div className="phase4-inline-pill">
-                <span>Qualidade</span>
-                <strong>{emptyText(trainingSummary?.qualityStatus, '—')}</strong>
-              </div>
-              <div className="phase4-inline-pill">
-                <span>Drift</span>
-                <strong>{emptyText(trainingSummary?.driftStatus, '—')}</strong>
-              </div>
-              <div className="phase4-inline-pill">
-                <span>Experts</span>
-                <strong>{formatList(trainingSummary?.runtime?.experts || trainingSummary?.experts || [], 3)}</strong>
-              </div>
+          <Section title="Radar social">
+            <div className="pill-row">
+              {topClassifications.length ? (
+                topClassifications.map((item, index) => (
+                  <Pill key={`${item.classification}-${index}`}>
+                    {traduzirClassificacaoSocial(item.classification)} {item.count}
+                  </Pill>
+                ))
+              ) : (
+                <div className="empty-state">Sem classificações recentes.</div>
+              )}
+            </div>
+          </Section>
+
+          <Section title="Saúde dos provedores">
+            <div className="page-stack">
+              {providerStatuses.length ? (
+                providerStatuses.map((provider, index) => (
+                  <div className="list-row" key={provider.provider || index}>
+                    <strong>{provider.provider}</strong>
+                    <span>
+                      {traduzirStatusGenerico(provider.status)}
+                      {provider.retryAfterSec ? ` • retry em ${provider.retryAfterSec}s` : ''}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-state">Nenhuma telemetria social foi recebida ainda.</div>
+              )}
+            </div>
+          </Section>
+
+          <Section title="Treinamento">
+            <div className="stats-grid">
+              <StatCard label="Qualidade" value={traduzirQualidade(emptyText(trainingSummary?.qualityStatus, '—'))} />
+              <StatCard label="Drift" value={traduzirNivelDrift(emptyText(trainingSummary?.driftStatus, '—'))} />
+              <StatCard label="Experts" value={formatList(trainingSummary?.runtime?.experts || trainingSummary?.experts || [], 3)} />
             </div>
           </Section>
         </div>
