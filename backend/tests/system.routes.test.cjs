@@ -22,15 +22,19 @@ function createExpressMock() {
 test('system routes register expected endpoints', () => {
   const expressMock = createExpressMock();
   const target = path.join(__dirname, '..', 'src', 'routes', 'system.routes.js');
-
   const router = loadWithMocks(target, {
     express: expressMock.express,
+    '../services/systemManifest.service': {
+      loadPublicApiContract: () => ({ version: '33.0.0', areas: {} }),
+      buildSystemManifest: () => ({ stage: 33, service: 'cripto-ia-system' }),
+      evaluateMaintenanceChecklist: () => ({ overallStatus: 'healthy' }),
+    },
   });
 
   assert.ok(router);
   assert.deepEqual(
     expressMock.routes.map((item) => item.path),
-    ['/manifest', '/maintenance-checklist', '/contracts/public-api']
+    ['/', '/manifest', '/maintenance-checklist', '/contracts/public-api']
   );
 });
 
@@ -39,6 +43,11 @@ test('manifest handler returns ok payload', () => {
   const target = path.join(__dirname, '..', 'src', 'routes', 'system.routes.js');
   loadWithMocks(target, {
     express: expressMock.express,
+    '../services/systemManifest.service': {
+      loadPublicApiContract: () => ({ version: '33.0.0', areas: {} }),
+      buildSystemManifest: () => ({ stage: 33, service: 'cripto-ia-system' }),
+      evaluateMaintenanceChecklist: () => ({ overallStatus: 'healthy' }),
+    },
   });
 
   const manifestRoute = expressMock.routes.find((item) => item.path === '/manifest');
@@ -47,4 +56,5 @@ test('manifest handler returns ok payload', () => {
 
   assert.equal(jsonPayload.ok, true);
   assert.equal(jsonPayload.data.stage, 33);
+  assert.equal(jsonPayload.data.service, 'cripto-ia-system');
 });
