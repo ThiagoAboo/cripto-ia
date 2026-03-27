@@ -12,11 +12,13 @@ router.get('/', (_req, res) => {
     ok: true,
     data: {
       service: 'system',
+      description: 'Rotas utilitárias de manifesto, checklist de manutenção e contrato público da API.',
       routes: [
         '/api/system/manifest',
         '/api/system/maintenance-checklist',
         '/api/system/contracts/public-api',
       ],
+      timestamp: new Date().toISOString(),
     },
   });
 });

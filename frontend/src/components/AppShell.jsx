@@ -1,6 +1,6 @@
 import SidebarNav from './SidebarNav';
 import StatusBadge from './StatusBadge';
-import { DASHBOARD_PAGES, getPageTitle, getPageSubtitle } from '../lib/dashboard-pages';
+import { DASHBOARD_PAGES, getPageDefinition } from '../lib/dashboard-pages';
 
 export default function AppShell({
   activePage,
@@ -12,6 +12,8 @@ export default function AppShell({
   onRefresh,
   children,
 }) {
+  const page = getPageDefinition(activePage);
+
   return (
     <div className="workspace">
       <SidebarNav items={DASHBOARD_PAGES} activeKey={activePage} onSelect={onSelectPage} />
@@ -20,8 +22,12 @@ export default function AppShell({
         <header className="workspace__header panel">
           <div>
             <p className="eyebrow">Cripto IA</p>
-            <h2>{getPageTitle(activePage)}</h2>
-            <p className="workspace__subtitle">{getPageSubtitle(activePage)}</p>
+            <h2>{page.label}</h2>
+            <p className="workspace__subtitle">{page.hint}</p>
+            <div className="workspace__header-meta">
+              <span className="workspace__header-chip">Área atual: {page.label}</span>
+              <span className="workspace__header-chip workspace__header-chip--muted">{page.context}</span>
+            </div>
           </div>
           <div className="hero__status-group">
             <StatusBadge connected={sseConnected} label={sseConnected ? 'SSE conectado' : 'SSE reconectando'} />

@@ -1,28 +1,40 @@
-Extraia este ZIP na raiz do projeto e aceite sobrescrever.
+# Pente-fino visual — fase 2
 
-Arquivos incluídos:
-- frontend/src/components/SidebarNav.jsx
-- frontend/src/components/AppShell.jsx
-- frontend/src/lib/dashboard-pages.js
-- frontend/src/styles.css
-- backend/src/routes/system.routes.js
+Este overlay foi montado com base no estado atual do GitHub em `main`.
 
-Depois rode:
+## O que ele faz
 
-Backend:
-  cd backend
-  npm test
+- refina o shell visual do painel (`AppShell`, `SidebarNav`, `styles.css`)
+- melhora os subtítulos do cabeçalho por página (`dashboard-pages.js`)
+- garante a resposta em `GET /api/system`
 
-Frontend:
-  cd ..\frontend
-  npm test
+## Como aplicar
 
-Se estiver usando Docker:
-  cd ..
-  docker compose up --build -d backend frontend
+1. Extraia este ZIP na raiz do projeto.
+2. Aceite sobrescrever os arquivos.
+3. Reinicie backend e frontend.
 
-Validações úteis:
-  curl.exe -fsS http://localhost:4000/api/system
-  curl.exe -fsS http://localhost:4000/api/system/manifest
-  curl.exe -fsS http://localhost:4000/api/system/maintenance-checklist
-  curl.exe -fsS http://localhost:4000/api/system/contracts/public-api
+## Comandos
+
+```powershell
+cd D:\Projetos\cripto-ia
+docker compose up --build -d backend frontend
+```
+
+## Validação
+
+```powershell
+curl.exe -fsS http://localhost:4000/api/system
+curl.exe -fsS http://localhost:4000/api/system/manifest
+```
+
+Depois abra:
+
+- http://localhost:5173
+
+E confira:
+
+- menu lateral
+- cabeçalho das páginas
+- cards/tabelas/listas
+- dashboard, configuração, operações, execução, governança, social e treinamento
