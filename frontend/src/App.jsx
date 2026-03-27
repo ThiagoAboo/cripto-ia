@@ -1,4 +1,5 @@
 import DashboardPage from './pages/DashboardPage';
+import MercadoPage from './pages/MercadoPage';
 import ConfiguracaoPage from './pages/ConfiguracaoPage';
 import OperacoesPage from './pages/OperacoesPage';
 import ExecucaoPage from './pages/ExecucaoPage';
@@ -10,6 +11,7 @@ import { useDashboardController } from './hooks/useDashboardController';
 
 const PAGE_COMPONENTS = {
   dashboard: DashboardPage,
+  mercado: MercadoPage,
   config: ConfiguracaoPage,
   operacoes: OperacoesPage,
   execucao: ExecucaoPage,
@@ -32,7 +34,7 @@ export default function App() {
   } = useDashboardController();
 
   if (loading) {
-    return <div className="app-loading">Carregando painel modular...</div>;
+    return <div className="app-loading">Carregando painel...</div>;
   }
 
   const ActivePage = PAGE_COMPONENTS[activePage] || DashboardPage;

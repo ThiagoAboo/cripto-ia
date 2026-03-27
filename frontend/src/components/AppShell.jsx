@@ -15,20 +15,17 @@ export default function AppShell({
   const page = getPageDefinition(activePage);
 
   return (
-    <div className="workspace">
+    <div className="workspace workspace--option3">
       <SidebarNav items={DASHBOARD_PAGES} activeKey={activePage} onSelect={onSelectPage} />
 
       <main className="workspace__content">
-        <header className="workspace__header panel">
+        <header className="workspace__header panel panel--hero-clean">
           <div>
             <p className="eyebrow">Cripto IA</p>
             <h2>{page.label}</h2>
             <p className="workspace__subtitle">{page.hint}</p>
-            <div className="workspace__header-meta">
-              <span className="workspace__header-chip">Área atual: {page.label}</span>
-              <span className="workspace__header-chip workspace__header-chip--muted">{page.context}</span>
-            </div>
           </div>
+
           <div className="hero__status-group">
             <StatusBadge connected={sseConnected} label={sseConnected ? 'SSE conectado' : 'SSE reconectando'} />
             <StatusBadge connected={Boolean(health?.ok)} label={health?.ok ? 'Backend saudável' : 'Backend indisponível'} />

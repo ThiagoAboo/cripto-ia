@@ -17,6 +17,9 @@ import {
   fetchOptimizations,
   fetchOrders,
   fetchPortfolio,
+  fetchMarketCandles,
+  fetchMarketSymbols,
+  fetchMarketTickers,
   fetchPromotionRequests,
   fetchPromotions,
   fetchRecoveryActions,
@@ -101,6 +104,13 @@ export function useDashboardController() {
   const [trainingForm, setTrainingForm] = useState(createInitialTrainingForm);
   const [trainingLoading, setTrainingLoading] = useState(false);
   const [selectedTrainingRunId, setSelectedTrainingRunId] = useState('');
+
+  const [marketQuoteAsset, setMarketQuoteAsset] = useState('USDT');
+  const [marketSymbols, setMarketSymbols] = useState([]);
+  const [selectedMarketSymbols, setSelectedMarketSymbols] = useState([]);
+  const [marketTickers, setMarketTickers] = useState([]);
+  const [marketCandlesBySymbol, setMarketCandlesBySymbol] = useState({});
+  const [marketLoading, setMarketLoading] = useState({ symbols: false, cards: false });
 
   const loadEverything = useCallback(async () => {
     setError('');
@@ -235,6 +245,99 @@ export function useDashboardController() {
     const candidate = status.training?.latestRun?.id || auxData.trainingRuns?.[0]?.id || '';
     if (candidate) setSelectedTrainingRunId(String(candidate));
   }, [auxData.trainingRuns, selectedTrainingRunId, status.training]);
+
+  useEffect(() => {
+    if (!draftConfig?.trading?.baseCurrency) return;
+    setMarketQuoteAsset((current) => current || String(draftConfig.trading.baseCurrency).toUpperCase());
+  }, [draftConfig?.trading?.baseCurrency]);
+
+  const loadMarketUniverse = useCallback(async (quoteAsset, refresh = false) => {
+    if (!quoteAsset) return;
+    setMarketLoading((current) => ({ ...current, symbols: true }));
+    try {
+      const payload = await fetchMarketSymbols(quoteAsset, refresh);
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      const available = new Set(items.map((item) => item.symbol));
+      const preferred = (draftConfig?.trading?.symbols || [])
+        .map((item) => String(item || '').toUpperCase())
+        .filter((symbol) => available.has(symbol))
+        .slice(0, 6);
+
+      setMarketSymbols(items);
+      setSelectedMarketSymbols((current) => {
+        const kept = (Array.isArray(current) ? current : []).filter((symbol) => available.has(symbol)).slice(0, 6);
+        if (kept.length) return kept;
+        if (preferred.length) return preferred;
+        return items.slice(0, 6).map((item) => item.symbol);
+      });
+    } catch (_error) {
+      setMarketSymbols([]);
+    } finally {
+      setMarketLoading((current) => ({ ...current, symbols: false }));
+    }
+  }, [draftConfig?.trading?.symbols]);
+
+  useEffect(() => {
+    if (!marketQuoteAsset) return;
+    loadMarketUniverse(marketQuoteAsset);
+  }, [loadMarketUniverse, marketQuoteAsset]);
+
+  useEffect(() => {
+    const symbols = (selectedMarketSymbols || []).slice(0, 6);
+    if (!symbols.length) {
+      setMarketTickers([]);
+      setMarketCandlesBySymbol({});
+      return;
+    }
+
+    let cancelled = false;
+    setMarketLoading((current) => ({ ...current, cards: true }));
+
+    Promise.all([
+      fetchMarketTickers(symbols),
+      Promise.all(symbols.map((symbol) => fetchMarketCandles(symbol, '1h', 30).catch(() => ({ symbol, candles: [] })))),
+    ])
+      .then(([tickerPayload, candlePayloads]) => {
+        if (cancelled) return;
+        setMarketTickers(Array.isArray(tickerPayload?.items) ? tickerPayload.items : []);
+        setMarketCandlesBySymbol(
+          candlePayloads.reduce((accumulator, item) => {
+            accumulator[item.symbol] = Array.isArray(item.candles) ? item.candles : [];
+            return accumulator;
+          }, {}),
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMarketTickers([]);
+        setMarketCandlesBySymbol({});
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setMarketLoading((current) => ({ ...current, cards: false }));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMarketSymbols]);
+
+  const handleMarketQuoteAssetChange = useCallback((value) => {
+    const quote = String(value || 'USDT').toUpperCase();
+    setMarketQuoteAsset(quote);
+  }, []);
+
+  const handleMarketSymbolsChange = useCallback((values) => {
+    const nextValues = Array.isArray(values)
+      ? values.map((item) => String(item || '').toUpperCase()).filter(Boolean).slice(0, 6)
+      : [];
+    setSelectedMarketSymbols(nextValues);
+  }, []);
+
+  const refreshMarketUniverse = useCallback(async () => {
+    await loadMarketUniverse(marketQuoteAsset, true);
+  }, [loadMarketUniverse, marketQuoteAsset]);
+
 
   useEffect(() => {
     const source = new EventSource(`${getApiBaseUrl()}/api/status/stream`);
@@ -711,6 +814,18 @@ export function useDashboardController() {
     backtestForm,
     setBacktestForm,
     summaryCards,
+    activePage,
+    goToPage: setActivePage,
+    marketQuoteAsset,
+    setMarketQuoteAsset: handleMarketQuoteAssetChange,
+    marketQuoteAssetOptions: [...new Set([String(draftConfig?.trading?.baseCurrency || 'USDT').toUpperCase(), 'USDT', 'BRL', 'BTC', 'ETH'])],
+    marketSymbols,
+    selectedMarketSymbols,
+    setSelectedMarketSymbols: handleMarketSymbolsChange,
+    marketTickers,
+    marketCandlesBySymbol,
+    marketLoading,
+    refreshMarketUniverse,
     handleTextChange,
     handleNumberChange,
     handleCheckboxChange,

@@ -1,11 +1,11 @@
 export default function SidebarNav({ items, activeKey, onSelect }) {
   return (
-    <aside className="workspace__sidebar panel">
+    <aside className="workspace__sidebar panel panel--sidebar-clean">
       <div className="workspace__brand">
         <p className="eyebrow">Cripto IA</p>
         <h1>Painel operacional</h1>
         <p className="workspace__sidebar-copy">
-          Navegação por área para acompanhar operação, configuração, IA, social e governança sem misturar contextos.
+          Acompanhe operação, mercado, configuração, IA, social e governança em áreas separadas e mais fáceis de ler.
         </p>
       </div>
 
