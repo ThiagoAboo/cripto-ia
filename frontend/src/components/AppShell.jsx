@@ -1,6 +1,6 @@
 import SidebarNav from './SidebarNav';
 import StatusBadge from './StatusBadge';
-import { DASHBOARD_PAGES, getPageTitle } from '../lib/dashboard-pages';
+import { DASHBOARD_PAGES, getPageTitle, getPageSubtitle } from '../lib/dashboard-pages';
 
 export default function AppShell({
   activePage,
@@ -21,10 +21,7 @@ export default function AppShell({
           <div>
             <p className="eyebrow">Cripto IA</p>
             <h2>{getPageTitle(activePage)}</h2>
-            <p className="workspace__subtitle">
-              Painel organizado por domínio para reduzir ruído visual e facilitar manutenção.
-              O backend, a IA e o social worker continuam desacoplados do frontend.
-            </p>
+            <p className="workspace__subtitle">{getPageSubtitle(activePage)}</p>
           </div>
           <div className="hero__status-group">
             <StatusBadge connected={sseConnected} label={sseConnected ? 'SSE conectado' : 'SSE reconectando'} />
