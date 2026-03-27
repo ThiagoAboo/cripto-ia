@@ -150,91 +150,122 @@ const DEFAULT_RUNBOOKS = [
   },
 ];
 
-async function ensureRunbookTables(client = pool) {
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS operational_runbooks (
-      runbook_key TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      severity TEXT NOT NULL DEFAULT 'warning',
-      description TEXT NOT NULL,
-      tags JSONB NOT NULL DEFAULT '[]'::jsonb,
-      detection_signals JSONB NOT NULL DEFAULT '[]'::jsonb,
-      steps JSONB NOT NULL DEFAULT '[]'::jsonb,
-      recovery_actions JSONB NOT NULL DEFAULT '[]'::jsonb,
-      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
+let ensureRunbookTablesPromise = null;
 
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS incident_drills (
-      id BIGSERIAL PRIMARY KEY,
-      scenario_key TEXT NOT NULL,
-      title TEXT NOT NULL,
-      severity TEXT NOT NULL DEFAULT 'warning',
-      status TEXT NOT NULL DEFAULT 'simulated',
-      triggered_by TEXT NOT NULL DEFAULT 'dashboard',
-      notes TEXT,
-      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
+async function createRunbookTablesAndSeed(client) {
+  await client.query('SELECT pg_advisory_lock($1)', [581234709]);
 
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS recovery_actions (
-      id BIGSERIAL PRIMARY KEY,
-      runbook_key TEXT NOT NULL,
-      action_key TEXT NOT NULL,
-      action_label TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'completed',
-      actor TEXT NOT NULL DEFAULT 'dashboard',
-      notes TEXT,
-      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-      result JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS operational_runbooks (
+        runbook_key TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'warning',
+        description TEXT NOT NULL,
+        tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+        detection_signals JSONB NOT NULL DEFAULT '[]'::jsonb,
+        steps JSONB NOT NULL DEFAULT '[]'::jsonb,
+        recovery_actions JSONB NOT NULL DEFAULT '[]'::jsonb,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
 
-  for (const item of DEFAULT_RUNBOOKS) {
-    await client.query(
-      `
-        INSERT INTO operational_runbooks (
-          runbook_key,
-          title,
-          severity,
-          description,
-          tags,
-          detection_signals,
-          steps,
-          recovery_actions,
-          metadata
-        )
-        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, '{}'::jsonb)
-        ON CONFLICT (runbook_key)
-        DO UPDATE SET
-          title = EXCLUDED.title,
-          severity = EXCLUDED.severity,
-          description = EXCLUDED.description,
-          tags = EXCLUDED.tags,
-          detection_signals = EXCLUDED.detection_signals,
-          steps = EXCLUDED.steps,
-          recovery_actions = EXCLUDED.recovery_actions,
-          updated_at = NOW();
-      `,
-      [
-        item.runbookKey,
-        item.title,
-        item.severity,
-        item.description,
-        JSON.stringify(item.tags || []),
-        JSON.stringify(item.detectionSignals || []),
-        JSON.stringify(item.steps || []),
-        JSON.stringify(item.recoveryActions || []),
-      ],
-    );
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS incident_drills (
+        id BIGSERIAL PRIMARY KEY,
+        scenario_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'warning',
+        status TEXT NOT NULL DEFAULT 'simulated',
+        triggered_by TEXT NOT NULL DEFAULT 'dashboard',
+        notes TEXT,
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS recovery_actions (
+        id BIGSERIAL PRIMARY KEY,
+        runbook_key TEXT NOT NULL,
+        action_key TEXT NOT NULL,
+        action_label TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'completed',
+        actor TEXT NOT NULL DEFAULT 'dashboard',
+        notes TEXT,
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    for (const item of DEFAULT_RUNBOOKS) {
+      await client.query(
+        `
+          INSERT INTO operational_runbooks (
+            runbook_key,
+            title,
+            severity,
+            description,
+            tags,
+            detection_signals,
+            steps,
+            recovery_actions,
+            metadata
+          )
+          VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, '{}'::jsonb)
+          ON CONFLICT (runbook_key)
+          DO UPDATE SET
+            title = EXCLUDED.title,
+            severity = EXCLUDED.severity,
+            description = EXCLUDED.description,
+            tags = EXCLUDED.tags,
+            detection_signals = EXCLUDED.detection_signals,
+            steps = EXCLUDED.steps,
+            recovery_actions = EXCLUDED.recovery_actions,
+            updated_at = NOW();
+        `,
+        [
+          item.runbookKey,
+          item.title,
+          item.severity,
+          item.description,
+          JSON.stringify(item.tags || []),
+          JSON.stringify(item.detectionSignals || []),
+          JSON.stringify(item.steps || []),
+          JSON.stringify(item.recoveryActions || []),
+        ],
+      );
+    }
+  } finally {
+    await client.query('SELECT pg_advisory_unlock($1)', [581234709]);
   }
+}
+
+async function ensureRunbookTables(client = pool) {
+  if (client !== pool) {
+    await createRunbookTablesAndSeed(client);
+    return;
+  }
+
+  if (!ensureRunbookTablesPromise) {
+    ensureRunbookTablesPromise = (async () => {
+      const dbClient = await pool.connect();
+      try {
+        await createRunbookTablesAndSeed(dbClient);
+      } finally {
+        dbClient.release();
+      }
+    })().catch((error) => {
+      ensureRunbookTablesPromise = null;
+      throw error;
+    });
+  }
+
+  await ensureRunbookTablesPromise;
 }
 
 function normalizeRunbookRow(row) {

@@ -16,6 +16,9 @@ function summarizeObject(value) {
     'useTestnet',
     'configVersion',
     'updatedAt',
+    'drift',
+    'experts',
+    'quality',
   ];
 
   const parts = preferredKeys
@@ -41,10 +44,28 @@ export function safeInlineValue(value, fallback = '—') {
   if (typeof value === 'string' || typeof value === 'number') return value;
   if (typeof value === 'boolean') return value ? 'Sim' : 'Não';
   if (value instanceof Date) return value.toLocaleString('pt-BR');
+
   if (Array.isArray(value)) {
-    const joined = value.map((item) => safeInlineValue(item, '')).filter(Boolean);
-    return joined.length ? joined : fallback;
+    const joined = value
+      .map((item) => safeInlineValue(item, ''))
+      .filter((item) => item !== null && item !== undefined && item !== '');
+
+    if (!joined.length) return fallback;
+
+    const hasReactElement = joined.some((item) => React.isValidElement(item));
+    if (hasReactElement) {
+      return React.createElement(
+        React.Fragment,
+        null,
+        ...joined.map((item, index) =>
+          React.createElement(React.Fragment, { key: `safe-inline-${index}` }, item, index < joined.length - 1 ? ', ' : null),
+        ),
+      );
+    }
+
+    return joined.join(', ');
   }
+
   if (typeof value === 'object') return summarizeObject(value);
   return String(value);
 }
@@ -55,11 +76,18 @@ export function safeMultilineValue(value, fallback = '—') {
 
   if (Array.isArray(value)) {
     if (!value.length) return fallback;
-    return value.map((item, index) => <div key={`safe-line-${index}`}>{safeInlineValue(item, '')}</div>);
+
+    return React.createElement(
+      React.Fragment,
+      null,
+      ...value.map((item, index) =>
+        React.createElement('div', { key: `safe-line-${index}` }, safeInlineValue(item, '')),
+      ),
+    );
   }
 
   if (typeof value === 'object') {
-    return <span>{summarizeObject(value)}</span>;
+    return React.createElement('span', null, summarizeObject(value));
   }
 
   return safeInlineValue(value, fallback);

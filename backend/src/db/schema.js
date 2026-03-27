@@ -130,7 +130,11 @@ const DEFAULT_BOT_CONFIG = {
 };
 
 async function initializeDatabase() {
-  await pool.query(`
+  const client = await pool.connect();
+  try {
+    await client.query('SELECT pg_advisory_lock($1)', [4815162342]);
+
+  await client.query(`
     CREATE TABLE IF NOT EXISTS bot_configs (
       id BIGSERIAL PRIMARY KEY,
       config_key TEXT NOT NULL UNIQUE,
@@ -141,7 +145,7 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS bot_config_versions (
       id BIGSERIAL PRIMARY KEY,
       config_key TEXT NOT NULL,
@@ -152,7 +156,7 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS training_runtime_state (
       id BIGSERIAL PRIMARY KEY,
       config_key TEXT NOT NULL UNIQUE,
@@ -162,12 +166,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_training_runtime_state_updated_at
     ON training_runtime_state (updated_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     INSERT INTO training_runtime_state (config_key, state, created_at, updated_at)
     SELECT 'active', COALESCE(config->'training'->'runtime', '{}'::jsonb), NOW(), NOW()
     FROM bot_configs
@@ -175,14 +179,14 @@ async function initializeDatabase() {
     ON CONFLICT (config_key) DO NOTHING;
   `);
 
-  await pool.query(`
+  await client.query(`
     INSERT INTO training_runtime_state (config_key, state, created_at, updated_at)
     VALUES ('active', '{}'::jsonb, NOW(), NOW())
     ON CONFLICT (config_key) DO NOTHING;
   `);
 
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS config_change_audit (
       id BIGSERIAL PRIMARY KEY,
       action_type TEXT NOT NULL,
@@ -196,12 +200,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_config_change_audit_created_at
     ON config_change_audit (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS config_promotions (
       id BIGSERIAL PRIMARY KEY,
       source_type TEXT NOT NULL,
@@ -220,12 +224,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_config_promotions_created_at
     ON config_promotions (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS promotion_approval_requests (
       id BIGSERIAL PRIMARY KEY,
       request_type TEXT NOT NULL,
@@ -253,18 +257,18 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_promotion_approval_requests_created_at
     ON promotion_approval_requests (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_promotion_approval_requests_status
     ON promotion_approval_requests (status, created_at DESC);
   `);
 
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS execution_action_logs (
       id BIGSERIAL PRIMARY KEY,
       action_type TEXT NOT NULL,
@@ -279,12 +283,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_execution_action_logs_created_at
     ON execution_action_logs (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS bot_runtime_controls (
       control_key TEXT PRIMARY KEY,
       is_paused BOOLEAN NOT NULL DEFAULT FALSE,
@@ -297,7 +301,7 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS symbol_cooldowns (
       symbol TEXT PRIMARY KEY,
       cooldown_type TEXT NOT NULL,
@@ -309,12 +313,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_symbol_cooldowns_active_until
     ON symbol_cooldowns (active_until DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS worker_heartbeats (
       worker_name TEXT PRIMARY KEY,
       status TEXT NOT NULL,
@@ -324,7 +328,7 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS system_events (
       id BIGSERIAL PRIMARY KEY,
       event_type TEXT NOT NULL,
@@ -334,7 +338,7 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS ai_decisions (
       id BIGSERIAL PRIMARY KEY,
       worker_name TEXT NOT NULL,
@@ -348,12 +352,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_ai_decisions_created_at
     ON ai_decisions (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS market_symbols (
       symbol TEXT PRIMARY KEY,
       base_asset TEXT NOT NULL,
@@ -364,7 +368,7 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS market_candles (
       source TEXT NOT NULL,
       symbol TEXT NOT NULL,
@@ -386,12 +390,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_market_candles_symbol_interval_time
     ON market_candles (symbol, interval, open_time DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS market_tickers (
       source TEXT NOT NULL,
       symbol TEXT PRIMARY KEY,
@@ -405,7 +409,7 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS paper_accounts (
       account_key TEXT PRIMARY KEY,
       mode TEXT NOT NULL DEFAULT 'paper',
@@ -421,7 +425,7 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS paper_positions (
       account_key TEXT NOT NULL REFERENCES paper_accounts(account_key) ON DELETE CASCADE,
       symbol TEXT NOT NULL,
@@ -440,14 +444,14 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS stop_loss_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
-  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS take_profit_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
-  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS trailing_stop_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
-  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS highest_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
-  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS atr_at_entry NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
-  await pool.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS risk_status TEXT NOT NULL DEFAULT 'NORMAL';`);
+  await client.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS stop_loss_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await client.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS take_profit_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await client.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS trailing_stop_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await client.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS highest_price NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await client.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS atr_at_entry NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await client.query(`ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS risk_status TEXT NOT NULL DEFAULT 'NORMAL';`);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS paper_orders (
       id BIGSERIAL PRIMARY KEY,
       account_key TEXT NOT NULL REFERENCES paper_accounts(account_key) ON DELETE CASCADE,
@@ -473,15 +477,15 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`ALTER TABLE paper_orders ADD COLUMN IF NOT EXISTS realized_pnl NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
-  await pool.query(`ALTER TABLE paper_orders ADD COLUMN IF NOT EXISTS pnl_pct NUMERIC(18, 8) NOT NULL DEFAULT 0;`);
+  await client.query(`ALTER TABLE paper_orders ADD COLUMN IF NOT EXISTS realized_pnl NUMERIC(28, 12) NOT NULL DEFAULT 0;`);
+  await client.query(`ALTER TABLE paper_orders ADD COLUMN IF NOT EXISTS pnl_pct NUMERIC(18, 8) NOT NULL DEFAULT 0;`);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_paper_orders_created_at
     ON paper_orders (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS portfolio_snapshots (
       id BIGSERIAL PRIMARY KEY,
       account_key TEXT NOT NULL REFERENCES paper_accounts(account_key) ON DELETE CASCADE,
@@ -495,12 +499,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_account_created_at
     ON portfolio_snapshots (account_key, created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS social_asset_scores (
       symbol TEXT PRIMARY KEY,
       social_score NUMERIC(10, 4) NOT NULL DEFAULT 0,
@@ -517,7 +521,7 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS social_alerts (
       id BIGSERIAL PRIMARY KEY,
       symbol TEXT NOT NULL,
@@ -530,12 +534,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_social_alerts_created_at
     ON social_alerts (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS social_provider_statuses (
       provider_key TEXT PRIMARY KEY,
       provider_name TEXT NOT NULL,
@@ -550,7 +554,7 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS live_order_attempts (
       id BIGSERIAL PRIMARY KEY,
       provider TEXT NOT NULL,
@@ -576,12 +580,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_live_order_attempts_created_at
     ON live_order_attempts (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS execution_health_checks (
       id BIGSERIAL PRIMARY KEY,
       provider TEXT NOT NULL,
@@ -594,12 +598,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_execution_health_checks_created_at
     ON execution_health_checks (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS execution_reconciliation_runs (
       id BIGSERIAL PRIMARY KEY,
       provider TEXT NOT NULL,
@@ -611,12 +615,12 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_execution_reconciliation_runs_created_at
     ON execution_reconciliation_runs (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS backtest_runs (
       id BIGSERIAL PRIMARY KEY,
       label TEXT NOT NULL,
@@ -635,21 +639,21 @@ async function initializeDatabase() {
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_backtest_runs_created_at
     ON backtest_runs (created_at DESC);
   `);
 
 
-await pool.query(`ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS regime_label TEXT NOT NULL DEFAULT 'mixed';`);
-await pool.query(`ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS performance_score NUMERIC(18, 8) NOT NULL DEFAULT 0;`);
+await client.query(`ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS regime_label TEXT NOT NULL DEFAULT 'mixed';`);
+await client.query(`ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS performance_score NUMERIC(18, 8) NOT NULL DEFAULT 0;`);
 
-await pool.query(`
+await client.query(`
   CREATE INDEX IF NOT EXISTS idx_backtest_runs_symbol_regime_score
   ON backtest_runs (symbol, regime_label, performance_score DESC, created_at DESC);
 `);
 
-await pool.query(`
+await client.query(`
   CREATE TABLE IF NOT EXISTS optimization_runs (
     id BIGSERIAL PRIMARY KEY,
     label TEXT NOT NULL,
@@ -663,12 +667,12 @@ await pool.query(`
   );
 `);
 
-await pool.query(`
+await client.query(`
   CREATE INDEX IF NOT EXISTS idx_optimization_runs_created_at
   ON optimization_runs (created_at DESC);
 `);
 
-await pool.query(`
+await client.query(`
   CREATE TABLE IF NOT EXISTS optimization_results (
     id BIGSERIAL PRIMARY KEY,
     optimization_run_id BIGINT NOT NULL REFERENCES optimization_runs(id) ON DELETE CASCADE,
@@ -684,17 +688,17 @@ await pool.query(`
   );
 `);
 
-await pool.query(`
+await client.query(`
   CREATE INDEX IF NOT EXISTS idx_optimization_results_run_rank
   ON optimization_results (optimization_run_id, rank ASC);
 `);
 
-await pool.query(`
+await client.query(`
   CREATE INDEX IF NOT EXISTS idx_optimization_results_symbol_regime_score
   ON optimization_results (symbol, regime_label, score DESC, created_at DESC);
 `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS backtest_trades (
       id BIGSERIAL PRIMARY KEY,
       run_id BIGINT NOT NULL REFERENCES backtest_runs(id) ON DELETE CASCADE,
@@ -716,12 +720,12 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_backtest_trades_run_id
     ON backtest_trades (run_id, execution_time ASC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS backtest_equity_points (
       id BIGSERIAL PRIMARY KEY,
       run_id BIGINT NOT NULL REFERENCES backtest_runs(id) ON DELETE CASCADE,
@@ -734,13 +738,13 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_backtest_equity_points_run_id
     ON backtest_equity_points (run_id, point_time ASC);
   `);
 
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS scheduled_job_runs (
       id BIGSERIAL PRIMARY KEY,
       job_key TEXT NOT NULL,
@@ -753,12 +757,12 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_scheduled_job_runs_job_key
     ON scheduled_job_runs (job_key, started_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS active_alerts (
       alert_key TEXT PRIMARY KEY,
       severity TEXT NOT NULL DEFAULT 'warning',
@@ -777,12 +781,12 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_active_alerts_status
     ON active_alerts (status, severity, updated_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS readiness_reports (
       id BIGSERIAL PRIMARY KEY,
       requested_by TEXT NOT NULL DEFAULT 'system',
@@ -793,12 +797,12 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_readiness_reports_created_at
     ON readiness_reports (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS training_runs (
       id BIGSERIAL PRIMARY KEY,
       label TEXT NOT NULL,
@@ -818,12 +822,12 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_training_runs_created_at
     ON training_runs (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS training_run_logs (
       id BIGSERIAL PRIMARY KEY,
       training_run_id BIGINT REFERENCES training_runs(id) ON DELETE CASCADE,
@@ -835,17 +839,17 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_training_run_logs_created_at
     ON training_run_logs (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_training_run_logs_run_id
     ON training_run_logs (training_run_id, created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS expert_evaluation_reports (
       id BIGSERIAL PRIMARY KEY,
       training_run_id BIGINT REFERENCES training_runs(id) ON DELETE SET NULL,
@@ -855,12 +859,12 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_expert_evaluation_reports_created_at
     ON expert_evaluation_reports (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS model_quality_reports (
       id BIGSERIAL PRIMARY KEY,
       training_run_id BIGINT REFERENCES training_runs(id) ON DELETE SET NULL,
@@ -871,12 +875,12 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_model_quality_reports_created_at
     ON model_quality_reports (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS model_drift_reports (
       id BIGSERIAL PRIMARY KEY,
       training_run_id BIGINT REFERENCES training_runs(id) ON DELETE SET NULL,
@@ -887,12 +891,12 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_model_drift_reports_created_at
     ON model_drift_reports (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS training_recalibration_history (
       id BIGSERIAL PRIMARY KEY,
       requested_by TEXT NOT NULL DEFAULT 'system',
@@ -905,12 +909,12 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_training_recalibration_history_created_at
     ON training_recalibration_history (created_at DESC);
   `);
 
-  await pool.query(
+  await client.query(
     `
       INSERT INTO bot_configs (config_key, version, config)
       VALUES ('active', 1, $1::jsonb)
@@ -919,7 +923,7 @@ await pool.query(`
     [JSON.stringify(DEFAULT_BOT_CONFIG)],
   );
 
-  await pool.query(
+  await client.query(
     `
       INSERT INTO bot_config_versions (config_key, version, config)
       SELECT config_key, version, config
@@ -930,27 +934,27 @@ await pool.query(`
   );
 
 
-  await pool.query(`
+  await client.query(`
     ALTER TABLE bot_runtime_controls
     ADD COLUMN IF NOT EXISTS maintenance_mode BOOLEAN NOT NULL DEFAULT FALSE
   `);
 
-  await pool.query(`
+  await client.query(`
     ALTER TABLE bot_runtime_controls
     ADD COLUMN IF NOT EXISTS maintenance_reason TEXT
   `);
 
-  await pool.query(`
+  await client.query(`
     ALTER TABLE bot_runtime_controls
     ADD COLUMN IF NOT EXISTS maintenance_scope TEXT NOT NULL DEFAULT 'system'
   `);
 
-  await pool.query(`
+  await client.query(`
     ALTER TABLE bot_runtime_controls
     ADD COLUMN IF NOT EXISTS maintenance_until TIMESTAMPTZ
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS notification_deliveries (
       id BIGSERIAL PRIMARY KEY,
       channel TEXT NOT NULL,
@@ -965,12 +969,12 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_notification_deliveries_created_at
     ON notification_deliveries (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS policy_gate_reports (
       id BIGSERIAL PRIMARY KEY,
       gate_type TEXT NOT NULL,
@@ -982,14 +986,14 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_policy_gate_reports_created_at
     ON policy_gate_reports (created_at DESC);
   `);
 
 
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS execution_preview_tickets (
       id BIGSERIAL PRIMARY KEY,
       actor TEXT NOT NULL DEFAULT 'system',
@@ -1003,17 +1007,17 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_execution_preview_tickets_created_at
     ON execution_preview_tickets (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_execution_preview_tickets_expires_at
     ON execution_preview_tickets (expires_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS observability_metric_snapshots (
       id BIGSERIAL PRIMARY KEY,
       source TEXT NOT NULL DEFAULT 'system',
@@ -1022,13 +1026,13 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_observability_metric_snapshots_created_at
     ON observability_metric_snapshots (created_at DESC);
   `);
 
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS backtest_validation_runs (
       id BIGSERIAL PRIMARY KEY,
       label TEXT NOT NULL,
@@ -1047,17 +1051,17 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_backtest_validation_runs_created_at
     ON backtest_validation_runs (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_backtest_validation_runs_mode_score
     ON backtest_validation_runs (mode, stability_score DESC, created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS backtest_validation_segments (
       id BIGSERIAL PRIMARY KEY,
       validation_run_id BIGINT NOT NULL REFERENCES backtest_validation_runs(id) ON DELETE CASCADE,
@@ -1073,13 +1077,13 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_backtest_validation_segments_run_idx
     ON backtest_validation_segments (validation_run_id, segment_index ASC, created_at ASC);
   `);
 
 
-  await pool.query(`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS operational_governance_reports (
       id BIGSERIAL PRIMARY KEY,
       trigger_source TEXT NOT NULL DEFAULT 'manual',
@@ -1091,23 +1095,98 @@ await pool.query(`
     );
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_operational_governance_reports_created_at
     ON operational_governance_reports (created_at DESC);
   `);
 
-  await pool.query(`
+  await client.query(`
     CREATE INDEX IF NOT EXISTS idx_operational_governance_reports_status_created
     ON operational_governance_reports (status, created_at DESC);
   `);
 
-  await pool.query(
+await client.query(`
+  CREATE TABLE IF NOT EXISTS operational_runbooks (
+    runbook_key TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'warning',
+    description TEXT NOT NULL,
+    tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+    detection_signals JSONB NOT NULL DEFAULT '[]'::jsonb,
+    steps JSONB NOT NULL DEFAULT '[]'::jsonb,
+    recovery_actions JSONB NOT NULL DEFAULT '[]'::jsonb,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+`);
+
+await client.query(`
+  CREATE TABLE IF NOT EXISTS incident_drills (
+    id BIGSERIAL PRIMARY KEY,
+    scenario_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'warning',
+    status TEXT NOT NULL DEFAULT 'simulated',
+    triggered_by TEXT NOT NULL DEFAULT 'dashboard',
+    notes TEXT,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+`);
+
+await client.query(`
+  CREATE TABLE IF NOT EXISTS recovery_actions (
+    id BIGSERIAL PRIMARY KEY,
+    runbook_key TEXT NOT NULL,
+    action_key TEXT NOT NULL,
+    action_label TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'completed',
+    actor TEXT NOT NULL DEFAULT 'dashboard',
+    notes TEXT,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    result JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+`);
+
+await client.query(`
+  CREATE TABLE IF NOT EXISTS testnet_supervision_reports (
+    id BIGSERIAL PRIMARY KEY,
+    trigger_source TEXT NOT NULL DEFAULT 'scheduler',
+    requested_by TEXT NOT NULL DEFAULT 'scheduler',
+    status TEXT NOT NULL DEFAULT 'healthy',
+    summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+`);
+
+await client.query(`
+  CREATE INDEX IF NOT EXISTS idx_testnet_supervision_reports_created_at
+  ON testnet_supervision_reports (created_at DESC);
+`);
+
+await client.query(`
+  CREATE INDEX IF NOT EXISTS idx_testnet_supervision_reports_status_created
+  ON testnet_supervision_reports (status, created_at DESC);
+`);
+
+
+  await client.query(
     `
       INSERT INTO bot_runtime_controls (control_key, is_paused, emergency_stop, pause_reason, updated_by, metadata)
       VALUES ('active', FALSE, FALSE, NULL, 'system', '{}'::jsonb)
       ON CONFLICT (control_key) DO NOTHING;
     `,
   );
+  } finally {
+    try {
+      await client.query('SELECT pg_advisory_unlock($1)', [4815162342]);
+    } finally {
+      client.release();
+    }
+  }
 }
 
 module.exports = {
