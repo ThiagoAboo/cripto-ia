@@ -476,3 +476,38 @@ export function fetchTrainingRecalibrationHistory(limit = 20) {
 export function runTrainingRecalibration(payload = {}) {
   return request('/api/training/recalibration/run', { method: 'POST', body: JSON.stringify(payload), });
 }
+
+export function fetchMarketSymbols(quoteAsset = 'USDT', refresh = false) {
+  const params = new URLSearchParams({
+    quoteAsset: String(quoteAsset || 'USDT').toUpperCase(),
+    refresh: refresh ? 'true' : 'false',
+  });
+  return request(`/api/market/symbols?${params.toString()}`);
+}
+
+export function fetchMarketTickers(symbols = [], refresh = false) {
+  const normalized = Array.isArray(symbols)
+    ? symbols.map((item) => String(item || '').toUpperCase()).filter(Boolean)
+    : String(symbols || '')
+        .split(',')
+        .map((item) => item.trim().toUpperCase())
+        .filter(Boolean);
+
+  const params = new URLSearchParams({
+    symbols: normalized.join(','),
+    refresh: refresh ? 'true' : 'false',
+  });
+
+  return request(`/api/market/tickers?${params.toString()}`);
+}
+
+export function fetchMarketCandles(symbol, interval = '5m', limit = 60, refresh = false) {
+  const safeSymbol = String(symbol || '').toUpperCase();
+  const params = new URLSearchParams({
+    interval: String(interval || '5m'),
+    limit: String(Number(limit || 60)),
+    refresh: refresh ? 'true' : 'false',
+  });
+
+  return request(`/api/market/candles/${encodeURIComponent(safeSymbol)}?${params.toString()}`);
+}
