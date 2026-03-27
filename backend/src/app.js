@@ -23,9 +23,11 @@ const observabilityRoutes = require('./routes/observability.routes');
 const runbooksRoutes = require('./routes/runbooks.routes');
 const incidentsRoutes = require('./routes/incidents.routes');
 const trainingRoutes = require('./routes/training.routes');
+const systemRoutes = require('./routes/system.routes');
 
 const app = express();
 
+app.use('/api/system', systemRoutes);
 app.use(cors({ origin: env.corsOrigin === '*' ? true : env.corsOrigin }));
 app.use(express.json({ limit: '1mb' }));
 
