@@ -1,12 +1,8 @@
-# Hotfix — exports de mercado no frontend
+Extraia este ZIP na raiz do projeto e aceite sobrescrever.
 
-Este overlay adiciona em `frontend/src/lib/api.js` os exports:
-- `fetchMarketSymbols`
-- `fetchMarketTickers`
-- `fetchMarketCandles`
+Fluxo Docker:
 
-Uso no ambiente Docker:
-```powershell
 cd D:\Projetos\cripto-ia
-docker compose up --build -d frontend backend
-```
+docker compose up --build -d frontend
+
+Depois atualize o navegador com Ctrl + F5.

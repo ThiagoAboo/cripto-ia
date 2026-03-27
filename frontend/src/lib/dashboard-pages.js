@@ -2,50 +2,42 @@ export const DASHBOARD_PAGES = [
   {
     key: 'dashboard',
     label: 'Dashboard',
-    hint: 'Visão executiva da operação, do capital simulado, dos riscos e da atividade mais recente.',
-    context: 'Use esta tela para entender rapidamente saúde do backend, patrimônio, PnL, alertas e posições.',
+    hint: 'Visão executiva do capital, da saúde do backend, dos riscos e da atividade mais recente.',
   },
   {
     key: 'mercado',
     label: 'Mercado',
-    hint: 'Radar com mini gráficos, favoritos, presets rápidos e comparação lado a lado entre pares da Binance.',
-    context: 'Selecione a base de conversão, monte uma watchlist e use os atalhos para ir direto para operação ou execução.',
+    hint: 'Radar visual de moedas com mini gráficos, variação em 24h, favoritos e comparação entre pares.',
   },
   {
     key: 'config',
     label: 'Configuração',
-    hint: 'Parâmetros de risco, execução, taxas, universo monitorado e comportamento da IA.',
-    context: 'Ajuste aqui as regras operacionais antes de colocar o runtime para agir.',
+    hint: 'Parâmetros de risco, taxas, execução, reserva de BNB e universo monitorado pela IA.',
   },
   {
     key: 'operacoes',
     label: 'Operações',
-    hint: 'Portfólio, ordens, backtests e validações para acompanhar o resultado da estratégia.',
-    context: 'Área de acompanhamento prático do que o sistema está gerando no dia a dia.',
+    hint: 'Portfólio, ordens, backtests e resultados recentes para leitura operacional do bot.',
   },
   {
     key: 'execucao',
     label: 'Execução',
     hint: 'Controles do bot, prévias de ordem, healthchecks, reconciliação e supervisão do runtime.',
-    context: 'Use para pausar, retomar, validar e supervisionar paper ou live com segurança.',
   },
   {
     key: 'governanca',
     label: 'Governança',
-    hint: 'Readiness, políticas, promoções, incidentes e critérios de segurança operacional.',
-    context: 'Camada de proteção antes de qualquer promoção de configuração ou ativação sensível.',
+    hint: 'Readiness, incidentes, promoções, políticas e segurança antes de qualquer ativação sensível.',
   },
   {
     key: 'social',
     label: 'Social',
-    hint: 'Narrativas, ranking consultivo, alertas e saúde dos provedores sociais.',
-    context: 'Contexto de mercado para apoiar leitura de cenário, sem executar trades diretamente.',
+    hint: 'Ranking consultivo de moedas, narrativas, alertas e saúde dos provedores sociais.',
   },
   {
     key: 'treinamento',
     label: 'Treinamento',
-    hint: 'Runtime, presets por regime, drift, qualidade e experts usados pela IA.',
-    context: 'Gerencie aprendizado, sincronização do runtime e ajustes assistidos dos experts.',
+    hint: 'Runtime da IA, drift, qualidade, presets por regime e experts ativos.',
   },
 ];
 
@@ -54,9 +46,9 @@ export function getPageDefinition(pageKey) {
 }
 
 export function getPageTitle(pageKey) {
-  return getPageDefinition(pageKey)?.label || 'Dashboard';
+  return getPageDefinition(pageKey).label;
 }
 
 export function getPageSubtitle(pageKey) {
-  return getPageDefinition(pageKey)?.hint || DASHBOARD_PAGES[0].hint;
+  return getPageDefinition(pageKey).hint;
 }

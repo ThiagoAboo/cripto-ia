@@ -33,10 +33,6 @@ export default function App() {
     pageContext,
   } = useDashboardController();
 
-  if (loading) {
-    return <div className="app-loading">Carregando painel...</div>;
-  }
-
   const ActivePage = PAGE_COMPONENTS[activePage] || DashboardPage;
 
   return (
@@ -49,7 +45,19 @@ export default function App() {
       saveMessage={saveMessage}
       onRefresh={loadEverything}
     >
-      <ActivePage ctx={pageContext} />
+      {loading ? (
+        <section className="section-card section-card--loading">
+          <div className="loading-state">
+            <div className="loading-state__spinner" aria-hidden="true" />
+            <div>
+              <strong>Carregando painel...</strong>
+              <p>Estamos sincronizando saúde, configuração, execução, social e treinamento.</p>
+            </div>
+          </div>
+        </section>
+      ) : (
+        <ActivePage ctx={pageContext} />
+      )}
     </AppShell>
   );
 }

@@ -1,6 +1,6 @@
 import SidebarNav from './SidebarNav';
 import StatusBadge from './StatusBadge';
-import { DASHBOARD_PAGES, getPageDefinition } from '../lib/dashboard-pages';
+import { DASHBOARD_PAGES, getPageTitle, getPageSubtitle } from '../lib/dashboard-pages';
 
 export default function AppShell({
   activePage,
@@ -12,32 +12,34 @@ export default function AppShell({
   onRefresh,
   children,
 }) {
-  const page = getPageDefinition(activePage);
+  const backendHealthy = Boolean(health?.ok);
 
   return (
-    <div className="workspace workspace--option3">
+    <div className="workspace-shell">
       <SidebarNav items={DASHBOARD_PAGES} activeKey={activePage} onSelect={onSelectPage} />
 
-      <main className="workspace__content">
-        <header className="workspace__header panel panel--hero-clean">
+      <div className="workspace-main">
+        <header className="workspace-header">
           <div>
-            <p className="eyebrow">Cripto IA</p>
-            <h2>{page.label}</h2>
-            <p className="workspace__subtitle">{page.hint}</p>
+            <span className="workspace-header__eyebrow">Cripto IA</span>
+            <h1 className="workspace-header__title">{getPageTitle(activePage)}</h1>
+            <p className="workspace-header__subtitle">{getPageSubtitle(activePage)}</p>
           </div>
 
-          <div className="hero__status-group">
-            <StatusBadge connected={sseConnected} label={sseConnected ? 'SSE conectado' : 'SSE reconectando'} />
-            <StatusBadge connected={Boolean(health?.ok)} label={health?.ok ? 'Backend saudável' : 'Backend indisponível'} />
-            <button className="button button--ghost" onClick={onRefresh}>Atualizar agora</button>
+          <div className="workspace-header__actions">
+            <StatusBadge connected={backendHealthy} label={backendHealthy ? 'Backend online' : 'Backend indisponível'} />
+            <StatusBadge connected={sseConnected} label={sseConnected ? 'SSE conectado' : 'SSE desconectado'} />
+            <button type="button" className="btn btn--secondary" onClick={onRefresh}>
+              Atualizar agora
+            </button>
           </div>
         </header>
 
-        {error ? <div className="alert alert--danger">{error}</div> : null}
-        {saveMessage ? <div className="alert alert--success">{saveMessage}</div> : null}
+        {error ? <div className="banner banner--danger">{error}</div> : null}
+        {saveMessage ? <div className="banner banner--success">{saveMessage}</div> : null}
 
-        {children}
-      </main>
+        <main className="workspace-content">{children}</main>
+      </div>
     </div>
   );
 }
