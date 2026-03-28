@@ -1,23 +1,12 @@
-$ErrorActionPreference = 'Stop'
-$repoRoot = Split-Path -Parent $PSScriptRoot
+param(
+  [string]$ProjectRoot = "."
+)
 
-Write-Host '== Diagnóstico =='
-& (Join-Path $PSScriptRoot 'diagnostico-testes.ps1')
+$ErrorActionPreference = "Stop"
+$root = (Resolve-Path $ProjectRoot).Path
 
-Write-Host ""
-Write-Host '== Backend =='
-Push-Location (Join-Path $repoRoot 'backend')
-try {
-  npm test
-} finally {
-  Pop-Location
-}
+& (Join-Path $PSScriptRoot "diagnostico-testes.ps1") -ProjectRoot $root
+& (Join-Path $PSScriptRoot "test-backend.ps1") -ProjectRoot $root
+& (Join-Path $PSScriptRoot "test-frontend.ps1") -ProjectRoot $root
 
-Write-Host ""
-Write-Host '== Frontend =='
-Push-Location (Join-Path $repoRoot 'frontend')
-try {
-  npm test
-} finally {
-  Pop-Location
-}
+Write-Host "`nTodos os testes foram executados." -ForegroundColor Green

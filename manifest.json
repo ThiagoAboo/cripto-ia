@@ -1,18 +1,14 @@
 {
-  "stage": 28,
-  "name": "endurecimento-motor-decisao",
-  "summary": "Camada testável de policy para sizing e bloqueios por regime, liquidez, spread, slippage e correlação.",
+  "name": "hotfix-windows-testes",
+  "version": "1.0.0",
+  "description": "Correção dos scripts de teste para Windows + PowerShell + VS Code",
   "files": [
-    "backend/src/services/decisionPolicy.service.js",
-    "backend/src/routes/decisions.routes.js",
-    "backend/tests/helpers/load-with-mocks.cjs",
-    "backend/tests/decisionPolicy.service.test.cjs",
-    "backend/tests/decisions.routes.test.cjs",
-    "frontend/src/lib/decision-preview.js",
-    "frontend/src/lib/decision-preview.test.js",
-    "ai/decision_policy.py",
-    "docs/ETAPA-28.md",
-    "docs/COMO-APLICAR.md",
-    "docs/AI-INTEGRACAO.md"
+    "backend/package.json",
+    "frontend/package.json",
+    "scripts/diagnostico-testes.ps1",
+    "scripts/test-backend.ps1",
+    "scripts/test-frontend.ps1",
+    "scripts/test-all.ps1",
+    "README-WINDOWS-TESTES.md"
   ]
 }

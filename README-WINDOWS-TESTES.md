@@ -1,26 +1,66 @@
-# Correção Windows para testes
+# Hotfix Windows para os testes
 
-Este pacote foi feito para ser extraído **na raiz do repositório** `cripto-ia`, sobrescrevendo arquivos.
+Este pacote corrige a execução dos testes no Windows + PowerShell + VS Code.
 
-## O que ele altera
-- `backend/package.json`
-- `frontend/package.json`
-- adiciona scripts PowerShell em `scripts/`
+## O que foi ajustado
 
-## Motivo
-No Windows + PowerShell, os scripts atuais usam glob no `node --test`:
-- backend: `tests/**/*.test.cjs`
-- frontend: `src/lib/*.test.js`
+### Backend
+O `backend/package.json` foi alterado de:
 
-No seu ambiente isso está sendo tratado como texto literal. Esta correção troca a execução para diretórios:
-- backend: `node --test tests`
-- frontend: `node --test src/lib`
-
-## Como usar no VS Code
-Abra a raiz do projeto e rode:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\diagnostico-testes.ps1
-.\scripts\test-all.ps1
+```json
+"test": "node --test tests/**/*.test.cjs",
+"test:watch": "node --test --watch tests/**/*.test.cjs"
 ```
+
+para:
+
+```json
+"test": "node --test tests",
+"test:watch": "node --test --watch tests"
+```
+
+### Frontend
+O `frontend/package.json` usa o formato por diretório:
+
+```json
+"test": "node --test src/lib",
+"test:watch": "node --test --watch src/lib"
+```
+
+## Como aplicar
+
+1. Feche os terminais que estiverem rodando na pasta do projeto.
+2. Copie os arquivos deste pacote por cima do seu repositório:
+   - `backend/package.json`
+   - `frontend/package.json`
+   - `scripts/*.ps1`
+3. No VS Code, abra a raiz do projeto.
+4. Abra um terminal PowerShell.
+
+## Comandos
+
+### Diagnóstico
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\diagnostico-testes.ps1 -ProjectRoot .
+```
+
+### Backend
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-backend.ps1 -ProjectRoot .
+```
+
+### Frontend
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-frontend.ps1 -ProjectRoot .
+```
+
+### Tudo
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-all.ps1 -ProjectRoot .
+```
+
+## Observações
+
+- Se o PowerShell bloquear a execução, use `-ExecutionPolicy Bypass` como nos exemplos acima.
+- Se `npm test` falhar por dependência ausente, rode `npm install` em `backend/` e `frontend/`.
+- Se os testes existirem, mas o Node ainda falhar, rode `node -v` e `npm -v` pelo script de diagnóstico para confirmar o ambiente.
