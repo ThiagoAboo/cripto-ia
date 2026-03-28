@@ -581,6 +581,79 @@ function mapStatusTone(status) {
   return 'neutral';
 }
 
+function mapActionTone(action) {
+  const raw = normalizeText(action).toLowerCase();
+  if (!raw) return 'neutral';
+
+  if (
+    [
+      'buy',
+      'compra',
+      'comprar',
+      'long',
+      'entry',
+      'entrar',
+      'increase',
+      'aumentar',
+    ].some((token) => raw.includes(token))
+  ) {
+    return 'success';
+  }
+
+  if (
+    [
+      'sell',
+      'venda',
+      'vender',
+      'short',
+      'exit',
+      'saida',
+      'saída',
+      'close',
+      'encerrar',
+      'reduzir',
+      'reduce',
+    ].some((token) => raw.includes(token))
+  ) {
+    return 'danger';
+  }
+
+  if (
+    [
+      'block',
+      'bloquear',
+      'bloqueado',
+      'reject',
+      'rejeitar',
+      'rejeitado',
+      'deny',
+      'denied',
+      'cancel',
+      'cancelado',
+    ].some((token) => raw.includes(token))
+  ) {
+    return 'warning';
+  }
+
+  if (
+    [
+      'hold',
+      'manter',
+      'aguardar',
+      'esperar',
+      'wait',
+      'skip',
+      'noop',
+      'no-op',
+      'neutral',
+    ].some((token) => raw.includes(token))
+  ) {
+    return 'neutral';
+  }
+
+  return 'info';
+}
+
 function buildRuntimeEntries(trainingRuns = [], jobRuns = []) {
   const runtimeEntries = [
     ...trainingRuns.map((run, index) => {
@@ -974,6 +1047,7 @@ export default function DashboardPage({ ctx }) {
             {decisions.length ? (
               <div className="list-stack compact-scroll">
                 {decisions.map((decision, index) => {
+                  const actionLabel = toText(traduzirAcaoDecisao(decision.action), 'Sem ação');
                   const decisionMeta = joinMetaParts([
                     formatOptionalDateTime(
                       pickFirst(
@@ -996,18 +1070,17 @@ export default function DashboardPage({ ctx }) {
                   );
 
                   return (
-                    <div key={`${toText(decision.symbol, 'decisao')}-${index}`} className="decision-card">
-                      <strong>
-                        {toText(decision.symbol)} • {traduzirAcaoDecisao(decision.action)}
-                      </strong>
-                      {isMeaningful(decisionMeta) ? (
-                        <div className="muted">{decisionMeta}</div>
-                      ) : null}
-                      <div>
+                    <div key={`${toText(decision.symbol, 'decisao')}-${index}`} className="alert-card">
+                      <div className="alert-card__title-row">
+                        <strong>{toText(decision.symbol)}</strong>
+                        <Pill tone={mapActionTone(`${decision.action || ''} ${actionLabel}`)}>{actionLabel}</Pill>
+                      </div>
+                      {isMeaningful(decisionMeta) ? <p>{decisionMeta}</p> : null}
+                      <p>
                         {isMeaningful(decisionDetail)
                           ? toText(decisionDetail)
                           : 'Sem justificativa detalhada.'}
-                      </div>
+                      </p>
                     </div>
                   );
                 })}
@@ -1024,29 +1097,23 @@ export default function DashboardPage({ ctx }) {
                 {orders.map((order, index) => {
                   const orderReason = extractOrderReason(order);
                   const status = toText(traduzirStatusGenerico(order.status), 'Sem status');
+                  const sideLabel = toText(traduzirAcaoDecisao(order.side), 'Sem ação');
+                  const orderMeta = joinMetaParts([
+                    formatOptionalDateTime(order.createdAt),
+                    status,
+                  ]);
                   return (
-                    <div key={`${toText(order.symbol, 'ordem')}-${index}`} className="decision-card">
-                      <strong>
-                        {toText(order.symbol)} • {traduzirAcaoDecisao(order.side)}
-                      </strong>
-                      {isMeaningful(joinMetaParts([
-                        formatOptionalDateTime(order.createdAt),
-                        status,
-                      ])) ? (
-                        <div className="muted">
-                          {joinMetaParts([
-                            formatOptionalDateTime(order.createdAt),
-                            status,
-                          ])}
-                        </div>
-                      ) : null}
-                      <div className="muted">
+                    <div key={`${toText(order.symbol, 'ordem')}-${index}`} className="alert-card">
+                      <div className="alert-card__title-row">
+                        <strong>{toText(order.symbol)}</strong>
+                        <Pill tone={mapActionTone(`${order.side || ''} ${sideLabel}`)}>{sideLabel}</Pill>
+                      </div>
+                      {isMeaningful(orderMeta) ? <p>{orderMeta}</p> : null}
+                      <p>
                         Preço: {formatMaybeMoney(order.price, baseCurrency)} • PnL:{' '}
                         {formatMaybeMoney(order.realizedPnl, baseCurrency)}
-                      </div>
-                      {isMeaningful(orderReason) ? (
-                        <div>Motivo: {toText(orderReason)}</div>
-                      ) : null}
+                      </p>
+                      {isMeaningful(orderReason) ? <p>Motivo: {toText(orderReason)}</p> : null}
                     </div>
                   );
                 })}
