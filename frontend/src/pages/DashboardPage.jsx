@@ -25,11 +25,27 @@ function normalizeText(value) {
   return String(value ?? '').trim();
 }
 
+function isPlaceholderText(value) {
+  const text = normalizeText(value).toLowerCase();
+  return [
+    '',
+    '—',
+    '-',
+    '–',
+    '?',
+    'n/a',
+    'na',
+    'null',
+    'undefined',
+    'none',
+  ].includes(text);
+}
+
 function isMeaningful(value) {
   if (value === null || value === undefined) return false;
   if (typeof value === 'number') return Number.isFinite(value);
   const text = normalizeText(value);
-  return Boolean(text && text !== '—' && text !== '-' && text !== '?');
+  return Boolean(text && !isPlaceholderText(text));
 }
 
 function pickFirst(...values) {
@@ -83,6 +99,22 @@ function formatMaybeMoney(value, currency = 'USDT', fallback = '—') {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? formatMoney(numeric, currency) : fallback;
 }
+
+function formatOptionalDateTime(value) {
+  const formatted = formatDateTime(value);
+  return isMeaningful(formatted) ? formatted : '';
+}
+
+function formatOptionalPercent(value, digits = 2) {
+  if (!isMeaningful(value) && value !== 0) return '';
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? formatPercent(numeric, digits) : '';
+}
+
+function joinMetaParts(parts = []) {
+  return parts.filter(isMeaningful).join(' • ');
+}
+
 
 function readFeeBreakdown(portfolio = {}) {
   const baseFee =
@@ -507,30 +539,46 @@ export default function DashboardPage({ ctx }) {
 
           {trainingRuns.length ? (
             <div className="list-stack compact-scroll">
-              {trainingRuns.map((run, index) => (
-                <div key={`${toText(run.label || run.objective, 'treino')}-${index}`} className="list-card">
-                  <strong>{toText(run.label || run.objective || 'Execução de treinamento')}</strong>
-                  <p>
-                    {formatDateTime(run.createdAt)} • {traduzirStatusGenerico(run.status)}
-                  </p>
-                  {isMeaningful(run.summary || run.reason) ? (
-                    <p>{toText(run.summary || run.reason)}</p>
-                  ) : null}
-                </div>
-              ))}
+              {trainingRuns.map((run, index) => {
+                const trainingMeta = joinMetaParts([
+                  formatOptionalDateTime(run.createdAt),
+                  toText(traduzirStatusGenerico(run.status), ''),
+                ]);
+                const trainingSummaryText = pickFirst(
+                  run.summary,
+                  run.reason,
+                  run.message,
+                  run.description,
+                );
+
+                return (
+                  <div key={`${toText(run.label || run.objective, 'treino')}-${index}`} className="list-card">
+                    <strong>{toText(run.label || run.objective || 'Execução de treinamento')}</strong>
+                    {isMeaningful(trainingMeta) ? <p>{trainingMeta}</p> : null}
+                    {isMeaningful(trainingSummaryText) ? (
+                      <p>{toText(trainingSummaryText)}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           ) : null}
 
           {jobRuns.length ? (
             <div className="list-stack compact-scroll">
-              {jobRuns.map((job, index) => (
-                <div key={`${toText(job.jobKey, 'job')}-${index}`} className="list-row">
-                  <strong>{traduzirChaveJob(job.jobKey)}</strong>
-                  <span>
-                    {traduzirStatusGenerico(job.status)} • {formatDateTime(job.createdAt)}
-                  </span>
-                </div>
-              ))}
+              {jobRuns.map((job, index) => {
+                const jobMeta = joinMetaParts([
+                  toText(traduzirStatusGenerico(job.status), ''),
+                  formatOptionalDateTime(job.createdAt || job.startedAt || job.finishedAt),
+                ]);
+
+                return (
+                  <div key={`${toText(job.jobKey, 'job')}-${index}`} className="list-row">
+                    <strong>{traduzirChaveJob(job.jobKey)}</strong>
+                    {isMeaningful(jobMeta) ? <span>{jobMeta}</span> : null}
+                  </div>
+                );
+              })}
             </div>
           ) : trainingRuns.length ? null : (
             <div className="empty-state">Ainda não há execuções automáticas registradas nesta base.</div>
@@ -586,18 +634,36 @@ export default function DashboardPage({ ctx }) {
             <h3 className="subsection-title">Decisões recentes</h3>
             {decisions.length ? (
               <div className="list-stack compact-scroll">
-                {decisions.map((decision, index) => (
-                  <div key={`${toText(decision.symbol, 'decisao')}-${index}`} className="decision-card">
-                    <strong>
-                      {toText(decision.symbol)} • {traduzirAcaoDecisao(decision.action)}
-                    </strong>
-                    <div className="muted">
-                      {formatDateTime(decision.createdAt)} • confiança{' '}
-                      {formatMaybePercent(decision.confidence, 2)}
+                {decisions.map((decision, index) => {
+                  const decisionMeta = joinMetaParts([
+                    formatOptionalDateTime(decision.createdAt),
+                    isMeaningful(decision.confidence)
+                      ? `confiança ${formatOptionalPercent(decision.confidence, 2)}`
+                      : '',
+                  ]);
+                  const decisionDetail = pickFirst(
+                    decision.reason,
+                    decision.summary,
+                    decision.note,
+                    decision.notes,
+                  );
+
+                  return (
+                    <div key={`${toText(decision.symbol, 'decisao')}-${index}`} className="decision-card">
+                      <strong>
+                        {toText(decision.symbol)} • {traduzirAcaoDecisao(decision.action)}
+                      </strong>
+                      {isMeaningful(decisionMeta) ? (
+                        <div className="muted">{decisionMeta}</div>
+                      ) : null}
+                      <div>
+                        {isMeaningful(decisionDetail)
+                          ? toText(decisionDetail)
+                          : 'Sem justificativa detalhada.'}
+                      </div>
                     </div>
-                    <div>{toText(decision.reason || decision.summary || 'Sem justificativa detalhada.')}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="empty-state">A IA ainda não publicou sinais nesta base.</div>
@@ -616,9 +682,17 @@ export default function DashboardPage({ ctx }) {
                       <strong>
                         {toText(order.symbol)} • {traduzirAcaoDecisao(order.side)}
                       </strong>
-                      <div className="muted">
-                        {formatDateTime(order.createdAt)} • {status}
-                      </div>
+                      {isMeaningful(joinMetaParts([
+                        formatOptionalDateTime(order.createdAt),
+                        status,
+                      ])) ? (
+                        <div className="muted">
+                          {joinMetaParts([
+                            formatOptionalDateTime(order.createdAt),
+                            status,
+                          ])}
+                        </div>
+                      ) : null}
                       <div className="muted">
                         Preço: {formatMaybeMoney(order.price, baseCurrency)} • PnL:{' '}
                         {formatMaybeMoney(order.realizedPnl, baseCurrency)}
