@@ -151,6 +151,27 @@ function buildSummaryList(items = [], emptyLabel = 'Sem detalhe adicional.') {
   );
 }
 
+function buildAlertCardList(items = [], emptyLabel = 'Sem detalhe adicional.') {
+  if (!items.length) {
+    return <div className="empty-state">{emptyLabel}</div>;
+  }
+
+  return (
+    <div className="list-stack compact-scroll">
+      {items.map((item, index) => (
+        <div key={`${item.key || item.title || 'item'}-${index}`} className="alert-card">
+          <div className="alert-card__title-row">
+            <strong>{item.title}</strong>
+            <Pill tone={item.statusTone || 'neutral'}>{item.statusLabel || 'Sem status'}</Pill>
+          </div>
+          {isMeaningful(item.dateText) ? <p>{item.dateText}</p> : null}
+          {isMeaningful(item.detail) ? <p>{item.detail}</p> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function readFeeBreakdown(portfolio = {}) {
   const baseFeeRaw = pickFirst(
     portfolio?.feesPaidQuote,
@@ -356,18 +377,78 @@ function buildStrongSocialEntries(socialSummary = {}) {
   });
 }
 
+function mapCooldownVisualState(item = {}) {
+  const raw = normalizeText(
+    pickFirst(
+      item.status,
+      item.severity,
+      item.cooldownType,
+      item.payload?.status,
+      item.payload?.severity,
+      item.reason,
+    ),
+  ).toLowerCase();
+
+  if (
+    [
+      'critical',
+      'critico',
+      'crítico',
+      'circuit',
+      'loss_streak',
+      'daily_loss',
+      'max_loss',
+      'guardrail',
+      'risk',
+    ].some((token) => raw.includes(token))
+  ) {
+    return { statusLabel: 'Crítico', statusTone: 'danger' };
+  }
+
+  if (
+    [
+      'warning',
+      'cooldown',
+      'protection',
+      'protec',
+      'reserve',
+      'manual',
+      'maintenance',
+      'retry',
+      'hold',
+      'blocked',
+      'bloque',
+    ].some((token) => raw.includes(token))
+  ) {
+    return { statusLabel: 'Proteção', statusTone: 'warning' };
+  }
+
+  return { statusLabel: 'Ativo', statusTone: 'info' };
+}
+
 function buildCooldownEntries(cooldowns = []) {
-  return cooldowns.map((item, index) => ({
-    key: `${toText(item.symbol, 'cooldown')}-${index}`,
-    title: toText(item.symbol, 'Cooldown'),
-    meta: joinMetaParts([
-      'bloqueio ativo',
-      formatOptionalDateTime(item.activeUntil || item.expiresAt),
-    ]),
-    detail: isMeaningful(item.reason)
-      ? toText(item.reason)
-      : 'Proteção temporária aberta para este ativo.',
-  }));
+  return cooldowns.map((item, index) => {
+    const visualState = mapCooldownVisualState(item);
+    const detailParts = [
+      isMeaningful(item?.cooldownType) ? toText(item.cooldownType, '') : '',
+      isMeaningful(item?.reason)
+        ? toText(item.reason, '')
+        : pickFirst(item?.payload?.reason, item?.payload?.summary, item?.payload?.message, ''),
+    ].filter((part, partIndex, allParts) => isMeaningful(part) && allParts.indexOf(part) === partIndex);
+
+    return {
+      key: `${toText(item.symbol, 'cooldown')}-${index}`,
+      title: toText(item.symbol, 'Cooldown'),
+      statusLabel: visualState.statusLabel,
+      statusTone: visualState.statusTone,
+      dateText: formatOptionalDateTime(
+        item.activeUntil || item.expiresAt || item.createdAt || item.updatedAt,
+      ),
+      detail: detailParts.length
+        ? detailParts.join(' • ')
+        : 'Proteção temporária aberta para este ativo.',
+    };
+  });
 }
 
 function buildLossStreakEntries(controlState = {}, portfolio = {}, orders = [], currency = 'USDT') {
@@ -391,7 +472,15 @@ function buildLossStreakEntries(controlState = {}, portfolio = {}, orders = [], 
           ? formatMaybeMoney(item.realizedPnl, currency)
           : '',
       ]),
-      detail: toText(item?.reason || item?.summary || item?.message, ''),
+      detail: toText(
+        item?.reason
+          || item?.summary
+          || item?.message
+          || item?.payload?.reason
+          || item?.payload?.summary
+          || item?.payload?.message,
+        '',
+      ),
     }));
   }
 
@@ -576,7 +665,8 @@ export default function DashboardPage({ ctx }) {
   const alerts = safeArray(activeAlerts).slice(0, 4);
   const cooldowns = safeArray(controlState?.activeCooldowns).slice(0, 6);
   const decisions = safeArray(currentDecisions).slice(0, 6);
-  const orders = safeArray(currentOrders).slice(0, 6);
+  const recentOrders = safeArray(currentOrders);
+  const orders = recentOrders.slice(0, 6);
   const topClassifications = safeArray(socialSummary?.topClassifications)
     .filter((item) => Number(item?.count || 0) > 0)
     .slice(0, 5);
@@ -604,7 +694,12 @@ export default function DashboardPage({ ctx }) {
     };
   });
   const cooldownEntries = buildCooldownEntries(cooldowns);
-  const lossStreakEntries = buildLossStreakEntries(controlState, currentPortfolio, orders, baseCurrency);
+  const lossStreakEntries = buildLossStreakEntries(
+    controlState,
+    currentPortfolio,
+    recentOrders.slice(0, 20),
+    baseCurrency,
+  );
   const runtimeEntries = buildRuntimeEntries(trainingRuns, jobRuns);
   const bnbReserveBlocks = orders.filter((order) =>
     String(extractOrderReason(order) || '').includes('bnb_reserve_protection'),
@@ -687,7 +782,7 @@ export default function DashboardPage({ ctx }) {
           <div className="dual-list-grid">
             <div>
               <h3 className="subsection-title">Cooldowns ativos</h3>
-              {buildSummaryList(cooldownEntries, 'Sem travas abertas neste momento.')}
+              {buildAlertCardList(cooldownEntries, 'Sem travas abertas neste momento.')}
             </div>
             <div>
               <h3 className="subsection-title">Loss streak</h3>

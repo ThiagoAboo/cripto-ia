@@ -48,43 +48,66 @@ function normalizeCooldownRow(row) {
   };
 }
 
-async function ensureRuntimeControl(client = pool) {
-  await client.query(
-    `
-      INSERT INTO bot_runtime_controls (
-        control_key, is_paused, emergency_stop, pause_reason,
-        maintenance_mode, maintenance_reason, maintenance_scope, maintenance_until,
-        updated_by, metadata
-      )
-      VALUES ('active', FALSE, FALSE, NULL, FALSE, NULL, 'system', NULL, 'system', '{}'::jsonb)
-      ON CONFLICT (control_key) DO NOTHING
-    `,
+function pickLossDetail(row = {}) {
+  const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
+  return (
+    row.reason
+    || row.rejection_reason
+    || row.rejectionReason
+    || payload.reason
+    || payload.summary
+    || payload.message
+    || null
   );
+}
+
+function normalizeLossRow(row = {}) {
+  const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
+  return {
+    symbol: row.symbol || payload.symbol || null,
+    realizedPnl: Number(row.realized_pnl ?? row.realizedPnl ?? 0),
+    pnlPct: Number(row.pnl_pct ?? row.pnlPct ?? 0),
+    reason: pickLossDetail(row),
+    summary: payload.summary || payload.message || null,
+    message: payload.message || null,
+    payload,
+    createdAt: row.created_at ?? row.createdAt ?? null,
+    updatedAt: row.updated_at ?? row.updatedAt ?? null,
+  };
+}
+
+async function ensureRuntimeControl(client = pool) {
+  await client.query(`
+    INSERT INTO bot_runtime_controls (
+      control_key, is_paused, emergency_stop, pause_reason,
+      maintenance_mode, maintenance_reason, maintenance_scope, maintenance_until,
+      updated_by, metadata
+    )
+    VALUES ('active', FALSE, FALSE, NULL, FALSE, NULL, 'system', NULL, 'system', '{}'::jsonb)
+    ON CONFLICT (control_key) DO NOTHING
+  `);
 }
 
 async function getRuntimeControl(client = pool) {
   await ensureRuntimeControl(client);
-
-  const result = await client.query(
-    `
-      SELECT
-        control_key AS "controlKey",
-        is_paused AS "isPaused",
-        emergency_stop AS "emergencyStop",
-        pause_reason AS "pauseReason",
-        maintenance_mode AS "maintenanceMode",
-        maintenance_reason AS "maintenanceReason",
-        maintenance_scope AS "maintenanceScope",
-        maintenance_until AS "maintenanceUntil",
-        updated_by AS "updatedBy",
-        metadata,
-        created_at AS "createdAt",
-        updated_at AS "updatedAt"
-      FROM bot_runtime_controls
-      WHERE control_key = 'active'
-      LIMIT 1
-    `,
-  );
+  const result = await client.query(`
+    SELECT
+      control_key AS "controlKey",
+      is_paused AS "isPaused",
+      emergency_stop AS "emergencyStop",
+      pause_reason AS "pauseReason",
+      maintenance_mode AS "maintenanceMode",
+      maintenance_reason AS "maintenanceReason",
+      maintenance_scope AS "maintenanceScope",
+      maintenance_until AS "maintenanceUntil",
+      updated_by AS "updatedBy",
+      metadata,
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
+    FROM bot_runtime_controls
+    WHERE control_key = 'active'
+    LIMIT 1
+  `);
 
   return normalizeControlRow(result.rows[0]);
 }
@@ -101,9 +124,14 @@ async function updateRuntimeControl(patch = {}, options = {}, client = pool) {
     emergencyStop: patch.emergencyStop ?? current.emergencyStop,
     pauseReason: patch.pauseReason !== undefined ? patch.pauseReason : current.pauseReason,
     maintenanceMode: patch.maintenanceMode ?? current.maintenanceMode,
-    maintenanceReason: patch.maintenanceReason !== undefined ? patch.maintenanceReason : current.maintenanceReason,
-    maintenanceScope: patch.maintenanceScope !== undefined ? patch.maintenanceScope : current.maintenanceScope,
-    maintenanceUntil: patch.maintenanceUntil !== undefined ? patch.maintenanceUntil : current.maintenanceUntil,
+    maintenanceReason:
+      patch.maintenanceReason !== undefined
+        ? patch.maintenanceReason
+        : current.maintenanceReason,
+    maintenanceScope:
+      patch.maintenanceScope !== undefined ? patch.maintenanceScope : current.maintenanceScope,
+    maintenanceUntil:
+      patch.maintenanceUntil !== undefined ? patch.maintenanceUntil : current.maintenanceUntil,
     updatedBy: options.updatedBy || patch.updatedBy || current.updatedBy || 'system',
     metadata,
   };
@@ -154,7 +182,10 @@ async function updateRuntimeControl(patch = {}, options = {}, client = pool) {
   return normalizeControlRow(result.rows[0]);
 }
 
-async function pauseRuntimeControl({ reason = 'manual_pause', updatedBy = 'system', emergencyStop = false, metadata = {} } = {}, client = pool) {
+async function pauseRuntimeControl(
+  { reason = 'manual_pause', updatedBy = 'system', emergencyStop = false, metadata = {} } = {},
+  client = pool,
+) {
   return updateRuntimeControl(
     {
       isPaused: true,
@@ -171,7 +202,10 @@ async function pauseRuntimeControl({ reason = 'manual_pause', updatedBy = 'syste
   );
 }
 
-async function resumeRuntimeControl({ updatedBy = 'system', metadata = {}, clearEmergencyStop = true } = {}, client = pool) {
+async function resumeRuntimeControl(
+  { updatedBy = 'system', metadata = {}, clearEmergencyStop = true } = {},
+  client = pool,
+) {
   return updateRuntimeControl(
     {
       isPaused: false,
@@ -188,7 +222,10 @@ async function resumeRuntimeControl({ updatedBy = 'system', metadata = {}, clear
   );
 }
 
-async function setMaintenanceMode({ reason = 'manual_maintenance', scope = 'system', until = null, updatedBy = 'system', metadata = {} } = {}, client = pool) {
+async function setMaintenanceMode(
+  { reason = 'manual_maintenance', scope = 'system', until = null, updatedBy = 'system', metadata = {} } = {},
+  client = pool,
+) {
   return updateRuntimeControl(
     {
       isPaused: true,
@@ -208,7 +245,10 @@ async function setMaintenanceMode({ reason = 'manual_maintenance', scope = 'syst
   );
 }
 
-async function clearMaintenanceMode({ updatedBy = 'system', metadata = {}, resume = false } = {}, client = pool) {
+async function clearMaintenanceMode(
+  { updatedBy = 'system', metadata = {}, resume = false } = {},
+  client = pool,
+) {
   return updateRuntimeControl(
     {
       maintenanceMode: false,
@@ -276,12 +316,14 @@ async function getCooldownForSymbol(symbol, client = pool) {
   return result.rows[0] ? normalizeCooldownRow(result.rows[0]) : null;
 }
 
-async function upsertCooldown({ symbol, cooldownType = 'GENERIC', reason = 'cooldown_active', activeUntil, payload = {} }, client = pool) {
+async function upsertCooldown(
+  { symbol, cooldownType = 'GENERIC', reason = 'cooldown_active', activeUntil, payload = {} },
+  client = pool,
+) {
   const safeSymbol = String(symbol || '').toUpperCase();
   if (!safeSymbol) {
     throw new Error('symbol_required');
   }
-
   if (!activeUntil) {
     throw new Error('activeUntil_required');
   }
@@ -314,7 +356,13 @@ async function upsertCooldown({ symbol, cooldownType = 'GENERIC', reason = 'cool
         created_at AS "createdAt",
         updated_at AS "updatedAt"
     `,
-    [safeSymbol, String(cooldownType || 'GENERIC').toUpperCase(), reason, activeUntil, JSON.stringify(payload || {})],
+    [
+      safeSymbol,
+      String(cooldownType || 'GENERIC').toUpperCase(),
+      reason,
+      activeUntil,
+      JSON.stringify(payload || {}),
+    ],
   );
 
   return normalizeCooldownRow(result.rows[0]);
@@ -348,6 +396,7 @@ async function clearCooldown(symbol, client = pool) {
 async function getRiskGuardrailSummary(configOverride = null, client = pool) {
   const configRow = configOverride ? { config: configOverride } : await getActiveConfig();
   const config = configRow?.config || {};
+
   const settings = getPaperSettings(config);
   const maxConsecutiveLosses = Number(config?.risk?.maxConsecutiveLosses || 3);
   const dailyMaxLossPct = Number(config?.risk?.dailyMaxLossPct || 3);
@@ -366,7 +415,15 @@ async function getRiskGuardrailSummary(configOverride = null, client = pool) {
     ),
     client.query(
       `
-        SELECT realized_pnl, pnl_pct, created_at
+        SELECT
+          symbol,
+          realized_pnl,
+          pnl_pct,
+          reason,
+          rejection_reason,
+          payload,
+          created_at,
+          updated_at
         FROM paper_orders
         WHERE account_key = $1
           AND status = 'FILLED'
@@ -381,15 +438,19 @@ async function getRiskGuardrailSummary(configOverride = null, client = pool) {
   ]);
 
   let consecutiveLosses = 0;
+  const currentLossRows = [];
+
   for (const row of recentSellOrders.rows) {
     const realizedPnl = Number(row.realized_pnl || 0);
     if (realizedPnl < 0) {
       consecutiveLosses += 1;
+      currentLossRows.push(row);
       continue;
     }
     break;
   }
 
+  const recentLosses = currentLossRows.slice(0, 6).map(normalizeLossRow);
   const dailyRealizedPnl = Number(dailyResult.rows[0]?.daily_realized_pnl || 0);
   const maxDailyLossAbs = settings.initialCapital * (dailyMaxLossPct / 100);
   const dailyLossLimitReached = dailyRealizedPnl <= -Math.abs(maxDailyLossAbs);
@@ -404,6 +465,8 @@ async function getRiskGuardrailSummary(configOverride = null, client = pool) {
     maxConsecutiveLosses,
     lossStreakLimitReached,
     activeCooldownsCount: activeCooldowns.length,
+    recentLosses,
+    lossStreakDetails: recentLosses,
     control,
   };
 }
