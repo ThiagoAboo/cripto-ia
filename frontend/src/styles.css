@@ -813,7 +813,7 @@ button:focus-visible,
 
 .market-toolbar {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 220px)) minmax(220px, 1fr) auto;
+  grid-template-columns: repeat(2, minmax(180px, 220px)) minmax(220px, 1fr);
   gap: 14px;
   align-items: end;
 }
@@ -854,6 +854,76 @@ button:focus-visible,
 .market-select-card small {
   margin-top: 2px;
   display: block;
+}
+
+.market-selector-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.market-selector-toolbar > div > span {
+  display: block;
+  font-weight: 700;
+  color: #dbe7ff;
+}
+
+.market-selector-search {
+  width: 100%;
+}
+
+.market-selector-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.market-selector-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+  cursor: pointer;
+}
+
+.market-selector-option.is-selected {
+  border-color: rgba(99, 163, 255, 0.34);
+  background: rgba(99, 163, 255, 0.1);
+}
+
+.market-selector-option input {
+  margin: 0;
+}
+
+.market-selector-option__main {
+  min-width: 0;
+}
+
+.market-selector-option__main strong {
+  display: block;
+  color: #dbe7ff;
+}
+
+.market-selector-option__main small {
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.market-selector-option__meta {
+  color: #ffd479;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .market-multiselect {

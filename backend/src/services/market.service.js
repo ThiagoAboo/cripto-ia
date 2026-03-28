@@ -6,9 +6,22 @@ const {
   fetch24hrTickers,
 } = require('./binance.service');
 
+const MARKET_PREFERENCES_KEY = 'market';
+const MAX_FAVORITES = 20;
+
 function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null || value === '') return fallback;
   return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+}
+
+function normalizeFavorites(values = []) {
+  return Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((item) => String(item || '').trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  ).slice(0, MAX_FAVORITES);
 }
 
 function serializeKline(raw) {
@@ -331,9 +344,53 @@ async function getTickers({ symbols = [], refresh = false } = {}) {
   }));
 }
 
+async function getMarketPreferences() {
+  const result = await pool.query(
+    `
+      SELECT payload, updated_at AS "updatedAt"
+      FROM dashboard_preferences
+      WHERE preference_key = $1
+      LIMIT 1
+    `,
+    [MARKET_PREFERENCES_KEY],
+  );
+
+  const row = result.rows[0] || null;
+  const payload = row?.payload && typeof row.payload === 'object' ? row.payload : {};
+
+  return {
+    favorites: normalizeFavorites(payload.favorites),
+    updatedAt: row?.updatedAt || null,
+  };
+}
+
+async function saveMarketPreferences(input = {}) {
+  const favorites = normalizeFavorites(input.favorites);
+
+  const result = await pool.query(
+    `
+      INSERT INTO dashboard_preferences (preference_key, payload, created_at, updated_at)
+      VALUES ($1, $2::jsonb, NOW(), NOW())
+      ON CONFLICT (preference_key)
+      DO UPDATE SET
+        payload = EXCLUDED.payload,
+        updated_at = NOW()
+      RETURNING payload, updated_at AS "updatedAt"
+    `,
+    [MARKET_PREFERENCES_KEY, JSON.stringify({ favorites })],
+  );
+
+  return {
+    favorites,
+    updatedAt: result.rows[0]?.updatedAt || null,
+  };
+}
+
 module.exports = {
   getSymbols,
   getCandles,
   getTickers,
+  getMarketPreferences,
+  saveMarketPreferences,
   parseBoolean,
 };

@@ -75,8 +75,21 @@ import {
   resolveDashboardData,
 } from '../lib/dashboard-state';
 
+const PAGE_FILTERS_STORAGE_KEY = 'criptoia.pageFilters';
+
+function loadStoredPageFilters() {
+  try {
+    const raw = localStorage.getItem(PAGE_FILTERS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
 export function useDashboardController() {
   const [activePage, setActivePage] = useState(() => localStorage.getItem('criptoia.activePage') || 'dashboard');
+  const [pageFilters, setPageFilters] = useState(loadStoredPageFilters);
   const [health, setHealth] = useState(null);
   const [status, setStatus] = useState(DEFAULT_STATUS);
   const [configRow, setConfigRow] = useState(null);
@@ -207,6 +220,10 @@ export function useDashboardController() {
   useEffect(() => {
     localStorage.setItem('criptoia.activePage', activePage);
   }, [activePage]);
+
+  useEffect(() => {
+    localStorage.setItem(PAGE_FILTERS_STORAGE_KEY, JSON.stringify(pageFilters || {}));
+  }, [pageFilters]);
 
   useEffect(() => {
     loadEverything();
@@ -783,6 +800,32 @@ export function useDashboardController() {
     }
   }, [draftConfig?.training?.evaluationWindowDays, loadEverything, trainingForm]);
 
+  const navigateToPage = useCallback((page, filters) => {
+    setActivePage(page);
+    if (filters === undefined) {
+      return;
+    }
+
+    setPageFilters((current) => {
+      const next = { ...(current || {}) };
+      if (!filters || typeof filters !== 'object') {
+        delete next[page];
+      } else {
+        next[page] = filters;
+      }
+      return next;
+    });
+  }, []);
+
+  const clearPageFilter = useCallback((page) => {
+    if (!page) return;
+    setPageFilters((current) => {
+      const next = { ...(current || {}) };
+      delete next[page];
+      return next;
+    });
+  }, []);
+
   const pageContext = {
     health,
     status,
@@ -815,7 +858,9 @@ export function useDashboardController() {
     setBacktestForm,
     summaryCards,
     activePage,
-    goToPage: setActivePage,
+    pageFilters,
+    clearPageFilter,
+    goToPage: navigateToPage,
     marketQuoteAsset,
     setMarketQuoteAsset: handleMarketQuoteAssetChange,
     marketQuoteAssetOptions: [...new Set([String(draftConfig?.trading?.baseCurrency || 'USDT').toUpperCase(), 'USDT', 'BRL', 'BTC', 'ETH'])],

@@ -1173,6 +1173,16 @@ await client.query(`
 `);
 
 
+await client.query(`
+  CREATE TABLE IF NOT EXISTS dashboard_preferences (
+    preference_key TEXT PRIMARY KEY,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+`);
+
+
   await client.query(
     `
       INSERT INTO bot_runtime_controls (control_key, is_paused, emergency_stop, pause_reason, updated_by, metadata)

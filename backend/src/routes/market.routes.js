@@ -1,6 +1,13 @@
 const express = require('express');
 const env = require('../config/env');
-const { getSymbols, getCandles, getTickers, parseBoolean } = require('../services/market.service');
+const {
+  getSymbols,
+  getCandles,
+  getTickers,
+  getMarketPreferences,
+  saveMarketPreferences,
+  parseBoolean,
+} = require('../services/market.service');
 
 const router = express.Router();
 
@@ -15,6 +22,29 @@ router.get('/symbols', async (request, response, next) => {
       count: symbols.length,
       items: symbols,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/preferences', async (_request, response, next) => {
+  try {
+    const preferences = await getMarketPreferences();
+    response.json(preferences);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/preferences', async (request, response, next) => {
+  try {
+    if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) {
+      response.status(400).json({ error: 'invalid_market_preferences_payload' });
+      return;
+    }
+
+    const updated = await saveMarketPreferences(request.body);
+    response.json(updated);
   } catch (error) {
     next(error);
   }

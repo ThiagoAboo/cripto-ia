@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from 'react';
 import Section from '../components/Section';
 import ConfigField from '../components/ConfigField';
 import Pill from '../components/Pill';
@@ -27,10 +28,35 @@ export default function ExecucaoPage({ ctx }) {
     handlePreviewLiveOrder,
     handleSubmitLiveOrder,
     draftConfig,
+    pageFilters,
+    clearPageFilter,
   } = ctx;
+
+  const symbolFilter = String(pageFilters?.execucao?.symbol || '').toUpperCase();
+
+  useEffect(() => {
+    if (!symbolFilter || executionForm.symbol === symbolFilter) return;
+    setExecutionForm((current) => ({ ...current, symbol: symbolFilter }));
+  }, [executionForm.symbol, setExecutionForm, symbolFilter]);
+
+  const filteredActionLogs = useMemo(
+    () => (symbolFilter ? (execution.recentActionLogs || []).filter((item) => String(item.symbol || '').toUpperCase() === symbolFilter) : execution.recentActionLogs || []),
+    [execution.recentActionLogs, symbolFilter],
+  );
 
   return (
     <div className="page-stack">
+      {symbolFilter ? (
+        <Section title="Filtro de mercado ativo" subtitle={`Exibindo dados de execução para ${symbolFilter}.`}>
+          <div className="button-row">
+            <Pill tone="info">{symbolFilter}</Pill>
+            <button type="button" className="button button--ghost button--small" onClick={() => clearPageFilter('execucao')}>
+              Limpar filtro
+            </button>
+          </div>
+        </Section>
+      ) : null}
+
       <div className="grid two-columns">
         <Section title="Controle operacional" subtitle="Esses controles continuam válidos para backend e IA, mesmo sem o frontend aberto.">
           <div className="button-row">
@@ -57,9 +83,7 @@ export default function ExecucaoPage({ ctx }) {
           </div>
         </Section>
 
-        <Section
-          title="Execução supervisionada"
-          subtitle="Prévia, confirmação explícita e reconciliação para testnet/modo real.">
+        <Section title="Execução supervisionada" subtitle={symbolFilter ? `Prévia e reconciliação com foco em ${symbolFilter}.` : 'Prévia, confirmação explícita e reconciliação para testnet/modo real.'}>
           <div className="list-item list-item--column">
             <strong>Status do adaptador</strong>
             <div className="muted">Modo: {traduzirModoExecucao(execution.mode)} • provedor: {execution.provider} • testnet: {traduzirSimNao(execution.useTestnet)} • simulação: {traduzirSimNao(execution.dryRun)}</div>
@@ -71,7 +95,7 @@ export default function ExecucaoPage({ ctx }) {
           </div>
           <div className="button-row top-gap">
             <button className="button" disabled={executionActionLoading === 'healthcheck'} onClick={() => handleExecutionAction('healthcheck', () => runExecutionHealthcheck({ requestedBy: 'dashboard' }), 'Verificação de saúde da execução concluída.')}>{executionActionLoading === 'healthcheck' ? 'Checando...' : 'Rodar verificação de saúde'}</button>
-            <button className="button" disabled={executionActionLoading === 'reconcile'} onClick={() => handleExecutionAction('reconcile', () => runExecutionReconciliation({ requestedBy: 'dashboard', symbols: draftConfig?.trading?.symbols || [] }), 'Reconciliação concluída.')}>{executionActionLoading === 'reconcile' ? 'Conciliando...' : 'Rodar reconciliação'}</button>
+            <button className="button" disabled={executionActionLoading === 'reconcile'} onClick={() => handleExecutionAction('reconcile', () => runExecutionReconciliation({ requestedBy: 'dashboard', symbols: symbolFilter ? [symbolFilter] : draftConfig?.trading?.symbols || [] }), 'Reconciliação concluída.')}>{executionActionLoading === 'reconcile' ? 'Conciliando...' : 'Rodar reconciliação'}</button>
           </div>
           <div className="list-stack top-gap compact-scroll">
             <div className="list-item list-item--column">
@@ -86,7 +110,7 @@ export default function ExecucaoPage({ ctx }) {
         </Section>
       </div>
 
-      <Section title="Prévia e envio supervisionado" subtitle="Fluxo separado do restante do dashboard para ficar mais claro e seguro.">
+      <Section title="Prévia e envio supervisionado" subtitle={symbolFilter ? `Fluxo supervisionado pré-preenchido para ${symbolFilter}.` : 'Fluxo separado do restante do dashboard para ficar mais claro e seguro.'}>
         <div className="grid three-columns">
           <ConfigField label="Símbolo"><input value={executionForm.symbol} onChange={(e) => setExecutionForm((c) => ({ ...c, symbol: e.target.value.toUpperCase() }))} /></ConfigField>
           <ConfigField label="Direção"><select value={executionForm.side} onChange={(e) => setExecutionForm((c) => ({ ...c, side: e.target.value }))}><option value="BUY">COMPRA</option><option value="SELL">VENDA</option></select></ConfigField>
@@ -115,15 +139,15 @@ export default function ExecucaoPage({ ctx }) {
         ) : null}
       </Section>
 
-      <Section title="Logs operacionais da execução" subtitle="Últimas ações supervisionadas registradas pelo backend.">
+      <Section title="Logs operacionais da execução" subtitle={symbolFilter ? `Ações supervisionadas filtradas para ${symbolFilter}.` : 'Últimas ações supervisionadas registradas pelo backend.'}>
         <div className="list-stack compact-scroll">
-          {execution.recentActionLogs?.length ? execution.recentActionLogs.map((item) => (
+          {filteredActionLogs.length ? filteredActionLogs.map((item) => (
             <div key={item.id} className="list-item list-item--column">
               <div className="decision-card__row"><strong>{traduzirTipoAcaoExecucao(item.actionType)}</strong><Pill tone={item.status === 'ok' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{traduzirStatusGenerico(item.status)}</Pill></div>
               <div className="muted">{formatDateTime(item.createdAt)} • {item.symbol || 'sem símbolo'} • {item.actor || 'sistema'}</div>
               <div className="muted">{item.message || item.summary || 'Sem detalhes adicionais.'}</div>
             </div>
-          )) : <div className="muted">Nenhum log de execução recente.</div>}
+          )) : <div className="muted">{symbolFilter ? `Nenhum log recente de execução para ${symbolFilter}.` : 'Nenhum log de execução recente.'}</div>}
         </div>
       </Section>
     </div>
