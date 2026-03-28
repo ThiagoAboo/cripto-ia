@@ -3,7 +3,6 @@ import StatCard from '../components/StatCard';
 import Pill from '../components/Pill';
 import {
   formatDateTime,
-  formatList,
   formatMoney,
   formatNumber,
   formatPercent,
@@ -14,7 +13,6 @@ import {
   traduzirChaveJob,
   traduzirNivelDrift,
   traduzirQualidade,
-  traduzirRunbook,
   traduzirSeveridade,
   traduzirStatusGenerico,
 } from '../lib/dashboard';
@@ -23,45 +21,208 @@ function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function normalizeText(value) {
+  return String(value ?? '').trim();
+}
+
+function isMeaningful(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'number') return Number.isFinite(value);
+  const text = normalizeText(value);
+  return Boolean(text && text !== '—' && text !== '-' && text !== '?');
+}
+
+function pickFirst(...values) {
+  for (const value of values) {
+    if (Array.isArray(value) && value.length) return value;
+    if (isMeaningful(value) || value === 0 || value === false) return value;
+  }
+  return undefined;
+}
+
 function toText(value, fallback = '—') {
   if (value === null || value === undefined || value === '') return fallback;
   if (typeof value === 'string' || typeof value === 'number') return String(value);
   if (typeof value === 'boolean') return value ? 'Sim' : 'Não';
-  if (Array.isArray(value)) return value.map((item) => toText(item, '')).filter(Boolean).join(', ') || fallback;
+  if (Array.isArray(value)) {
+    const joined = value.map((item) => toText(item, '')).filter(Boolean).join(', ');
+    return joined || fallback;
+  }
   if (typeof value === 'object') {
-    const preferred = ['label', 'status', 'mode', 'message', 'value'];
+    const preferred = [
+      'label',
+      'status',
+      'message',
+      'summary',
+      'reason',
+      'value',
+    ];
     const parts = preferred
-      .filter((key) => key in value)
-      .map((key) => `${key}: ${toText(value[key], '')}`)
+      .filter((key) => Object.prototype.hasOwnProperty.call(value, key))
+      .map((key) => toText(value[key], ''))
       .filter(Boolean);
-    return parts.join(' • ') || `Objeto com ${Object.keys(value).length} campo(s)`;
+    return parts.join(' • ') || fallback;
   }
   return String(value);
 }
 
-function readFeeBreakdown(portfolio = {}) {
-  const baseFee = Number(
-    portfolio?.feesPaidQuote ?? portfolio?.feesQuote ?? portfolio?.feesPaid ?? portfolio?.quoteFee ?? 0,
-  ) || 0;
-  const bnbFee = Number(
-    portfolio?.feesPaidBnb ?? portfolio?.feesBnb ?? portfolio?.bnbFeesPaid ?? portfolio?.bnbFee ?? 0,
-  ) || 0;
+function formatMaybeNumber(value, digits = 2, fallback = '—') {
+  if (!isMeaningful(value) && value !== 0) return fallback;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? formatNumber(numeric, digits) : fallback;
+}
 
+function formatMaybePercent(value, digits = 2, fallback = '—') {
+  if (!isMeaningful(value) && value !== 0) return fallback;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? formatPercent(numeric, digits) : fallback;
+}
+
+function formatMaybeMoney(value, currency = 'USDT', fallback = '—') {
+  if (!isMeaningful(value) && value !== 0) return fallback;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? formatMoney(numeric, currency) : fallback;
+}
+
+function readFeeBreakdown(portfolio = {}) {
+  const baseFee =
+    Number(
+      portfolio?.feesPaidQuote ??
+        portfolio?.feesQuote ??
+        portfolio?.feesPaid ??
+        portfolio?.quoteFee ??
+        0,
+    ) || 0;
+  const bnbFee =
+    Number(
+      portfolio?.feesPaidBnb ??
+        portfolio?.feesBnb ??
+        portfolio?.bnbFeesPaid ??
+        portfolio?.bnbFee ??
+        0,
+    ) || 0;
   return { baseFee, bnbFee };
 }
 
-function ShortcutButton({ label, hint, onClick }) {
-  return (
-    <button type="button" className="shortcut-card" onClick={onClick}>
-      <strong>{label}</strong>
-      <span>{hint}</span>
-    </button>
+function readLossStreak(controlState = {}, portfolio = {}) {
+  const raw = pickFirst(
+    controlState?.lossStreak,
+    controlState?.currentLossStreak,
+    controlState?.consecutiveLosses,
+    portfolio?.lossStreak,
+    portfolio?.consecutiveLosses,
   );
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function extractOrderReason(order = {}) {
+  return pickFirst(
+    order?.rejectionReason,
+    order?.rejectReason,
+    order?.rejectMessage,
+    order?.failureReason,
+    order?.errorMessage,
+    order?.error,
+    order?.reason,
+    order?.summary,
+    order?.notes,
+    order?.note,
+  );
+}
+
+function buildProviderDetail(provider = {}) {
+  const providerName = toText(provider.provider || provider.name || provider.source, 'Provedor');
+  const statusLabel = toText(
+    traduzirStatusGenerico(provider.status || provider.health || provider.state),
+    'Sem status',
+  );
+  const parts = [statusLabel];
+  if (Number(provider.retryAfterSec) > 0) {
+    parts.push(`retry em ${formatNumber(provider.retryAfterSec, 0)}s`);
+  }
+  const note = pickFirst(provider.message, provider.reason, provider.summary);
+  if (isMeaningful(note)) parts.push(toText(note));
+  return {
+    providerName,
+    detail: parts.join(' • '),
+  };
+}
+
+function buildTrainingMetrics(trainingSummary = {}) {
+  const qualityStatus = pickFirst(
+    trainingSummary?.qualityStatus,
+    trainingSummary?.latestQualityStatus,
+    trainingSummary?.latestQuality?.qualityStatus,
+    trainingSummary?.latestQualityReport?.qualityStatus,
+  );
+  const qualityScore = pickFirst(
+    trainingSummary?.qualityScore,
+    trainingSummary?.latestQuality?.qualityScore,
+    trainingSummary?.latestQualityReport?.qualityScore,
+  );
+
+  const driftStatus = pickFirst(
+    trainingSummary?.driftStatus,
+    trainingSummary?.latestDriftStatus,
+    trainingSummary?.latestDrift?.driftStatus,
+    trainingSummary?.latestDriftReport?.driftStatus,
+  );
+  const driftScore = pickFirst(
+    trainingSummary?.driftScore,
+    trainingSummary?.latestDrift?.driftScore,
+    trainingSummary?.latestDriftReport?.driftScore,
+  );
+
+  const activeExperts = pickFirst(
+    Array.isArray(trainingSummary?.activeExperts)
+      ? trainingSummary.activeExperts.length
+      : undefined,
+    Array.isArray(trainingSummary?.runtime?.activeExperts)
+      ? trainingSummary.runtime.activeExperts.length
+      : undefined,
+    trainingSummary?.activeExpertsCount,
+    trainingSummary?.runtime?.activeExpertsCount,
+    trainingSummary?.expertsActive,
+  );
+
+  return [
+    isMeaningful(qualityScore) || isMeaningful(qualityStatus)
+      ? {
+          key: 'quality',
+          label: 'Qualidade',
+          value: formatMaybeNumber(qualityScore, 4),
+          hint: isMeaningful(qualityStatus)
+            ? traduzirQualidade(qualityStatus)
+            : 'Último score disponível.',
+        }
+      : null,
+    isMeaningful(driftScore) || isMeaningful(driftStatus)
+      ? {
+          key: 'drift',
+          label: 'Drift',
+          value: formatMaybeNumber(driftScore, 4),
+          hint: isMeaningful(driftStatus)
+            ? traduzirNivelDrift(driftStatus)
+            : 'Última leitura de drift.',
+        }
+      : null,
+    isMeaningful(activeExperts) || activeExperts === 0
+      ? {
+          key: 'experts',
+          label: 'Experts ativos',
+          value: formatMaybeNumber(activeExperts, 0),
+          hint:
+            Number(activeExperts) > 0
+              ? 'Experts em uso no runtime atual.'
+              : 'Nenhum expert ativo neste snapshot.',
+        }
+      : null,
+  ].filter(Boolean);
 }
 
 export default function DashboardPage({ ctx }) {
   const {
-    summaryCards = [],
     health,
     baseCurrency = 'USDT',
     currentPortfolio = {},
@@ -73,23 +234,33 @@ export default function DashboardPage({ ctx }) {
     socialSummary,
     providerStatuses = [],
     recentTrainingRuns = [],
-    trainingSummary,
+    trainingSummary = {},
     controlState,
     goToPage,
   } = ctx;
 
   const positions = safeArray(currentPortfolio?.positions);
   const readinessChecks = safeArray(latestReadiness?.checks).slice(0, 4);
-  const topClassifications = safeArray(socialSummary?.topClassifications).slice(0, 4);
+  const alerts = safeArray(activeAlerts).slice(0, 4);
   const cooldowns = safeArray(controlState?.activeCooldowns).slice(0, 6);
-  const { baseFee, bnbFee } = readFeeBreakdown(currentPortfolio);
+  const decisions = safeArray(currentDecisions).slice(0, 6);
+  const orders = safeArray(currentOrders).slice(0, 6);
+  const topClassifications = safeArray(socialSummary?.topClassifications)
+    .filter((item) => Number(item?.count || 0) > 0)
+    .slice(0, 5);
+  const providers = safeArray(providerStatuses).slice(0, 6);
+  const trainingRuns = safeArray(recentTrainingRuns).slice(0, 4);
+  const jobRuns = safeArray(recentJobRuns).slice(0, 5);
 
+  const { baseFee, bnbFee } = readFeeBreakdown(currentPortfolio);
   const realizedPnl = Number(currentPortfolio?.realizedPnl || 0);
   const equity = Number(currentPortfolio?.equity || 0);
   const cashBalance = Number(currentPortfolio?.cashBalance || 0);
+  const lossStreak = readLossStreak(controlState, currentPortfolio);
   const strongSocialCount = topClassifications
     .filter((item) => String(item.classification || '').toUpperCase() === 'FORTE')
     .reduce((sum, item) => sum + Number(item.count || 0), 0);
+  const trainingMetrics = buildTrainingMetrics(trainingSummary);
 
   const topCards = [
     {
@@ -111,314 +282,360 @@ export default function DashboardPage({ ctx }) {
       value: formatMoney(realizedPnl, baseCurrency),
       tone: realizedPnl >= 0 ? 'positive' : 'danger',
       hint: (
-        <div className="stat-card__stacked-hint">
-          <span>Taxas {baseCurrency}: {formatMoney(baseFee, baseCurrency)}</span>
-          <span>Taxas BNB: {formatNumber(bnbFee, 6)} BNB</span>
-        </div>
+        <>
+          <div>Taxas {baseCurrency}: {formatMoney(baseFee, baseCurrency)}</div>
+          <div>Taxas BNB: {formatNumber(bnbFee, 6)} BNB</div>
+        </>
       ),
     },
     {
       key: 'bot-control',
       label: 'Controle do bot',
       value: controlState?.isPaused ? 'Pausado' : 'Ativo',
-      tone: controlState?.isPaused || controlState?.emergencyStop ? 'warning' : 'positive',
+      tone:
+        controlState?.isPaused || controlState?.emergencyStop ? 'warning' : 'positive',
       hint: controlState?.emergencyStop
         ? 'Parada de emergência ativa.'
         : controlState?.maintenanceMode
           ? 'Modo de manutenção ligado.'
-          : 'Sem bloqueios globais.',
+          : cooldowns.length
+            ? `${cooldowns.length} bloqueio(s) temporário(s) ativo(s).`
+            : 'Sem bloqueios globais.',
     },
   ];
 
-  const extraCards = safeArray(summaryCards)
-    .filter((card) => !['Backend', 'Patrimônio simulado', 'PnL realizado', 'Controle do bot'].includes(card.label))
-    .map((card, index) => ({
-      key: card.key || `${String(card.label || 'resumo').toLowerCase().replace(/\s+/g, '-')}-${index}`,
-      label: toText(card.label),
-      value: toText(card.value),
-      hint: toText(card.hint, ''),
-      tone: card.tone || 'default',
-    }));
-
   return (
     <div className="page-stack">
-      <Section
-        title="Resumo executivo"
-        subtitle="Visão mais limpa dos indicadores principais, atalhos rápidos e leitura operacional do momento."
-      >
-        <div className="stats-grid stats-grid--top">
-          {topCards.map((card) => (
+      <div className="stats-grid stats-grid--top">
+        {topCards.map((card) => (
+          <StatCard
+            key={card.key}
+            label={card.label}
+            value={card.value}
+            hint={card.hint}
+            tone={card.tone}
+          />
+        ))}
+      </div>
+
+      <div className="grid two-columns">
+        <Section
+          title="Cooldowns e proteção"
+          subtitle="Travas ativas, streak de perdas e proteção operacional do bot."
+          actions={
+            <button className="btn btn--secondary" onClick={() => goToPage('execucao')}>
+              Abrir execução
+            </button>
+          }
+        >
+          <div className="mini-stat-row">
             <StatCard
-              key={card.key}
-              label={card.label}
-              value={card.value}
-              hint={card.hint}
-              tone={card.tone}
+              label="Cooldowns ativos"
+              value={formatNumber(cooldowns.length, 0)}
+              tone={cooldowns.length > 0 ? 'warning' : 'default'}
+              hint={
+                cooldowns.length
+                  ? `${cooldowns.length} bloqueio(s) temporário(s) aberto(s) agora.`
+                  : 'Sem travas abertas neste momento.'
+              }
             />
-          ))}
-        </div>
-
-        {extraCards.length ? (
-          <div className="stats-grid stats-grid--secondary">
-            {extraCards.map((card) => (
-              <StatCard
-                key={card.key}
-                label={card.label}
-                value={card.value}
-                hint={card.hint}
-                tone={card.tone}
-              />
-            ))}
+            <StatCard
+              label="Loss streak"
+              value={formatNumber(lossStreak, 0)}
+              tone={lossStreak > 0 ? 'warning' : 'default'}
+              hint={
+                lossStreak > 0
+                  ? 'Monitorado pela camada de risco operacional.'
+                  : 'Sem sequência recente de perdas.'
+              }
+            />
           </div>
-        ) : null}
 
-        <div className="shortcut-grid">
-          <ShortcutButton label="Mercado" hint="Ver pares, mini gráficos e variação em 24h." onClick={() => goToPage('mercado')} />
-          <ShortcutButton label="Operações" hint="Acompanhar carteira, ordens e backtests." onClick={() => goToPage('operacoes')} />
-          <ShortcutButton label="Execução" hint="Controlar o bot e supervisionar o runtime." onClick={() => goToPage('execucao')} />
-          <ShortcutButton label="Governança" hint="Checar prontidão, alertas e incidentes." onClick={() => goToPage('governanca')} />
-          <ShortcutButton label="Social" hint="Ver o radar consultivo e os provedores." onClick={() => goToPage('social')} />
-          <ShortcutButton label="Treinamento" hint="Ajustar regime, drift e experts." onClick={() => goToPage('treinamento')} />
+          {cooldowns.length ? (
+            <div className="list-stack compact-scroll">
+              {cooldowns.map((item, index) => (
+                <div
+                  key={`${toText(item.symbol, 'cooldown')}-${index}`}
+                  className="list-card"
+                >
+                  <strong>{toText(item.symbol, 'Cooldown')}</strong>
+                  <p>
+                    Até {formatDateTime(item.activeUntil || item.expiresAt)}
+                    {isMeaningful(item.reason) ? ` • ${toText(item.reason)}` : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              Sem travas abertas neste momento.
+            </div>
+          )}
+        </Section>
+
+        <Section
+          title="Radar social"
+          subtitle="Sinais consultivos, classificações fortes e saúde dos provedores sociais."
+          actions={
+            <button className="btn btn--secondary" onClick={() => goToPage('social')}>
+              Abrir social
+            </button>
+          }
+        >
+          <div className="mini-stat-row">
+            <StatCard
+              label="Fortes"
+              value={formatNumber(strongSocialCount, 0)}
+              tone={strongSocialCount > 0 ? 'positive' : 'default'}
+              hint={
+                strongSocialCount > 0
+                  ? 'Classificações fortes no radar atual.'
+                  : 'Nenhuma classificação forte recente.'
+              }
+            />
+            <StatCard
+              label="Providers"
+              value={formatNumber(providers.length, 0)}
+              tone={providers.length > 0 ? 'positive' : 'default'}
+              hint={
+                providers.length > 0
+                  ? 'Fontes sociais monitoradas.'
+                  : 'Nenhuma telemetria social recebida ainda.'
+              }
+            />
+          </div>
+
+          {topClassifications.length ? (
+            <div className="pill-cloud">
+              {topClassifications.map((item, index) => (
+                <Pill key={`${item.classification || 'social'}-${index}`} tone="info">
+                  {traduzirClassificacaoSocial(item.classification)} • {formatNumber(item.count, 0)}
+                </Pill>
+              ))}
+            </div>
+          ) : null}
+
+          {providers.length ? (
+            <div className="list-stack compact-scroll">
+              {providers.map((provider, index) => {
+                const entry = buildProviderDetail(provider);
+                return (
+                  <div key={`${entry.providerName}-${index}`} className="list-row">
+                    <strong>{entry.providerName}</strong>
+                    <span>{entry.detail}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : topClassifications.length ? null : (
+            <div className="empty-state">Sem classificações recentes.</div>
+          )}
+        </Section>
+      </div>
+
+      <div className="grid two-columns">
+        <Section
+          title="Prontidão e alertas"
+          subtitle="Checks operacionais recentes e alertas ativos que merecem atenção."
+          actions={
+            <button className="btn btn--secondary" onClick={() => goToPage('governanca')}>
+              Abrir governança
+            </button>
+          }
+        >
+          {readinessChecks.length ? (
+            <div className="list-stack compact-scroll">
+              {readinessChecks.map((item, index) => (
+                <div
+                  key={`${toText(item.label || item.key, 'check')}-${index}`}
+                  className="alert-card"
+                >
+                  <div className="alert-card__title-row">
+                    <strong>{toText(item.label || item.key, 'Check')}</strong>
+                    <Pill tone={String(item.status || '').toLowerCase() === 'ok' ? 'success' : 'warning'}>
+                      {traduzirStatusGenerico(item.status)}
+                    </Pill>
+                  </div>
+                  <p>{toText(item.message || item.detail || 'Sem detalhe adicional.')}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">Nenhuma validação de prontidão foi registrada ainda.</div>
+          )}
+
+          {alerts.length ? (
+            <div className="list-stack compact-scroll">
+              {alerts.map((alert, index) => (
+                <div key={`${toText(alert.title || alert.alertKey, 'alerta')}-${index}`} className="alert-card">
+                  <div className="alert-card__title-row">
+                    <strong>{toText(alert.title || alert.alertKey, 'Alerta')}</strong>
+                    <Pill tone={String(alert.severity || '').toLowerCase() === 'critical' ? 'danger' : 'warning'}>
+                      {traduzirSeveridade(alert.severity)}
+                    </Pill>
+                  </div>
+                  <p>{toText(alert.message || 'Sem mensagem adicional.')}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </Section>
+
+        <Section
+          title="Treinamento e runtime"
+          subtitle="Resumo executivo da IA, drift recente, jobs e últimas execuções do treinamento."
+          actions={
+            <button className="btn btn--secondary" onClick={() => goToPage('treinamento')}>
+              Abrir treinamento
+            </button>
+          }
+        >
+          {trainingMetrics.length ? (
+            <div className="mini-stat-row">
+              {trainingMetrics.map((metric) => (
+                <StatCard
+                  key={metric.key}
+                  label={metric.label}
+                  value={metric.value}
+                  hint={metric.hint}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">Sem snapshot executivo do treinamento neste momento.</div>
+          )}
+
+          {trainingRuns.length ? (
+            <div className="list-stack compact-scroll">
+              {trainingRuns.map((run, index) => (
+                <div key={`${toText(run.label || run.objective, 'treino')}-${index}`} className="list-card">
+                  <strong>{toText(run.label || run.objective || 'Execução de treinamento')}</strong>
+                  <p>
+                    {formatDateTime(run.createdAt)} • {traduzirStatusGenerico(run.status)}
+                  </p>
+                  {isMeaningful(run.summary || run.reason) ? (
+                    <p>{toText(run.summary || run.reason)}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {jobRuns.length ? (
+            <div className="list-stack compact-scroll">
+              {jobRuns.map((job, index) => (
+                <div key={`${toText(job.jobKey, 'job')}-${index}`} className="list-row">
+                  <strong>{traduzirChaveJob(job.jobKey)}</strong>
+                  <span>
+                    {traduzirStatusGenerico(job.status)} • {formatDateTime(job.createdAt)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : trainingRuns.length ? null : (
+            <div className="empty-state">Ainda não há execuções automáticas registradas nesta base.</div>
+          )}
+        </Section>
+      </div>
+
+      <Section
+        title="Posições e atividade"
+        subtitle="Posições abertas, decisões recentes e ordens já registradas na base."
+        actions={
+          <button className="btn btn--secondary" onClick={() => goToPage('operacoes')}>
+            Abrir operações
+          </button>
+        }
+      >
+        {positions.length ? (
+          <div className="table-wrap compact-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Símbolo</th>
+                  <th>Qtd</th>
+                  <th>Entrada</th>
+                  <th>Preço atual</th>
+                  <th>Não realizado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {positions.slice(0, 8).map((position, index) => {
+                  const unrealizedPnl = Number(position?.unrealizedPnl || 0);
+                  return (
+                    <tr key={`${toText(position.symbol, 'posicao')}-${index}`}>
+                      <td>{toText(position.symbol)}</td>
+                      <td>{formatMaybeNumber(position.quantity, 6)}</td>
+                      <td>{formatMaybeMoney(position.avgEntryPrice, baseCurrency)}</td>
+                      <td>{formatMaybeMoney(position.lastPrice, baseCurrency)}</td>
+                      <td className={unrealizedPnl >= 0 ? 'text-positive' : 'text-danger'}>
+                        {formatMaybeMoney(unrealizedPnl, baseCurrency)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-state">A carteira está zerada neste momento.</div>
+        )}
+
+        <div className="dual-list-grid">
+          <div>
+            <h3 className="subsection-title">Decisões recentes</h3>
+            {decisions.length ? (
+              <div className="list-stack compact-scroll">
+                {decisions.map((decision, index) => (
+                  <div key={`${toText(decision.symbol, 'decisao')}-${index}`} className="decision-card">
+                    <strong>
+                      {toText(decision.symbol)} • {traduzirAcaoDecisao(decision.action)}
+                    </strong>
+                    <div className="muted">
+                      {formatDateTime(decision.createdAt)} • confiança{' '}
+                      {formatMaybePercent(decision.confidence, 2)}
+                    </div>
+                    <div>{toText(decision.reason || decision.summary || 'Sem justificativa detalhada.')}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">A IA ainda não publicou sinais nesta base.</div>
+            )}
+          </div>
+
+          <div>
+            <h3 className="subsection-title">Ordens recentes</h3>
+            {orders.length ? (
+              <div className="list-stack compact-scroll">
+                {orders.map((order, index) => {
+                  const orderReason = extractOrderReason(order);
+                  const status = toText(traduzirStatusGenerico(order.status), 'Sem status');
+                  return (
+                    <div key={`${toText(order.symbol, 'ordem')}-${index}`} className="decision-card">
+                      <strong>
+                        {toText(order.symbol)} • {traduzirAcaoDecisao(order.side)}
+                      </strong>
+                      <div className="muted">
+                        {formatDateTime(order.createdAt)} • {status}
+                      </div>
+                      <div className="muted">
+                        Preço: {formatMaybeMoney(order.price, baseCurrency)} • PnL:{' '}
+                        {formatMaybeMoney(order.realizedPnl, baseCurrency)}
+                      </div>
+                      {isMeaningful(orderReason) ? (
+                        <div>Motivo: {toText(orderReason)}</div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="empty-state">Ainda não há ordens registradas nesta base.</div>
+            )}
+          </div>
         </div>
       </Section>
-
-      <div className="dashboard-grid">
-        <div className="page-stack">
-          <Section
-            title="Cooldowns e proteção"
-            subtitle="Travas ativas, streak de perdas e proteção operacional do bot."
-            actions={<button type="button" className="btn btn--secondary" onClick={() => goToPage('execucao')}>Abrir execução</button>}
-          >
-            <div className="mini-stat-row">
-              <StatCard label="Cooldowns ativos" value={cooldowns.length} hint="Bloqueios temporários abertos agora." />
-              <StatCard
-                label="Loss streak"
-                value={Number(controlState?.guardrails?.lossStreak || 0)}
-                hint="Monitorado pela camada de risco operacional."
-                tone={Number(controlState?.guardrails?.lossStreak || 0) > 0 ? 'warning' : 'default'}
-              />
-            </div>
-
-            {cooldowns.length ? (
-              <div className="list-stack">
-                {cooldowns.map((item, index) => (
-                  <div className="list-row" key={`${item.symbol || 'cooldown'}-${item.activeUntil || item.expiresAt || index}`}>
-                    <strong>{toText(item.symbol)}</strong>
-                    <span>Até {formatDateTime(item.activeUntil || item.expiresAt)}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state">Sem travas abertas neste momento.</div>
-            )}
-          </Section>
-
-          <Section
-            title="Prontidão e alertas"
-            subtitle="Checks operacionais recentes e alertas ativos que merecem atenção."
-            actions={<button type="button" className="btn btn--secondary" onClick={() => goToPage('governanca')}>Abrir governança</button>}
-          >
-            {readinessChecks.length ? (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Check</th>
-                      <th>Detalhe</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {readinessChecks.map((item, index) => (
-                      <tr key={`${item.key || item.label || 'readiness'}-${index}`}>
-                        <td>{toText(item.label || item.key)}</td>
-                        <td>{toText(item.message || item.status || 'Sem detalhe adicional.')}</td>
-                        <td><Pill tone={String(item.status || '').toLowerCase().includes('fail') ? 'danger' : 'info'}>{traduzirStatusGenerico(item.status)}</Pill></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="empty-state">Nenhuma validação de prontidão foi registrada ainda.</div>
-            )}
-
-            {activeAlerts.length ? (
-              <div className="list-stack list-stack--spaced">
-                {activeAlerts.slice(0, 4).map((alert, index) => (
-                  <div className="alert-card" key={`${alert.alertKey || alert.title || 'alert'}-${index}`}>
-                    <div className="alert-card__title-row">
-                      <strong>{toText(alert.title || alert.alertKey)}</strong>
-                      <Pill tone={String(alert.severity || '').toLowerCase().includes('crit') ? 'danger' : 'warning'}>
-                        {traduzirSeveridade(alert.severity)}
-                      </Pill>
-                    </div>
-                    <p>{toText(alert.message || 'Sem mensagem adicional.')}</p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </Section>
-
-          <Section
-            title="Posições e atividade"
-            subtitle="Posições abertas, decisões recentes e ordens já registradas na base."
-            actions={<button type="button" className="btn btn--secondary" onClick={() => goToPage('operacoes')}>Abrir operações</button>}
-          >
-            {positions.length ? (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Símbolo</th>
-                      <th>Qtd</th>
-                      <th>Entrada</th>
-                      <th>Preço atual</th>
-                      <th>Não realizado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {positions.slice(0, 8).map((position, index) => (
-                      <tr key={`${position.symbol || 'position'}-${index}`}>
-                        <td>{toText(position.symbol)}</td>
-                        <td>{formatNumber(position.quantity, 6)}</td>
-                        <td>{formatMoney(position.avgEntryPrice, baseCurrency)}</td>
-                        <td>{formatMoney(position.lastPrice, baseCurrency)}</td>
-                        <td className={Number(position.unrealizedPnl || 0) >= 0 ? 'text-positive' : 'text-danger'}>
-                          {formatMoney(position.unrealizedPnl || 0, baseCurrency)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="empty-state">A carteira está zerada neste momento.</div>
-            )}
-
-            <div className="dual-list-grid">
-              <div>
-                <h3 className="subsection-title">Decisões recentes</h3>
-                {currentDecisions.length ? (
-                  <div className="list-stack">
-                    {currentDecisions.slice(0, 6).map((decision, index) => (
-                      <div className="list-card" key={`${decision.id || decision.symbol || 'decision'}-${index}`}>
-                        <strong>{toText(decision.symbol)} • {traduzirAcaoDecisao(decision.action)}</strong>
-                        <span>{formatDateTime(decision.createdAt)} • confiança {formatPercent(decision.confidence || 0)}</span>
-                        <p>{toText(decision.reason || decision.summary || 'Sem justificativa detalhada.')}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty-state">A IA ainda não publicou sinais nesta base.</div>
-                )}
-              </div>
-
-              <div>
-                <h3 className="subsection-title">Ordens recentes</h3>
-                {currentOrders.length ? (
-                  <div className="list-stack">
-                    {currentOrders.slice(0, 6).map((order, index) => (
-                      <div className="list-card" key={`${order.id || order.symbol || 'order'}-${index}`}>
-                        <strong>{toText(order.symbol)} • {traduzirAcaoDecisao(order.side)}</strong>
-                        <span>{formatDateTime(order.createdAt)} • {traduzirStatusGenerico(order.status)}</span>
-                        <p>
-                          Preço: {formatMoney(order.price, baseCurrency)} • PnL: {formatMoney(order.realizedPnl || 0, baseCurrency)}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty-state">Ainda não há ordens registradas nesta base.</div>
-                )}
-              </div>
-            </div>
-          </Section>
-        </div>
-
-        <div className="page-stack">
-          <Section
-            title="Radar social"
-            subtitle="Sinais consultivos, classificações principais e saúde dos provedores sociais."
-            actions={<button type="button" className="btn btn--secondary" onClick={() => goToPage('social')}>Abrir social</button>}
-          >
-            <div className="mini-stat-row">
-              <StatCard label="Fortes" value={strongSocialCount} hint="Classificações fortes no radar atual." tone={strongSocialCount > 0 ? 'positive' : 'default'} />
-              <StatCard label="Providers" value={providerStatuses.length} hint="Fontes sociais monitoradas." />
-            </div>
-
-            {topClassifications.length ? (
-              <div className="pill-cloud">
-                {topClassifications.map((item, index) => (
-                  <Pill key={`${item.classification || 'class'}-${index}`} tone={String(item.classification || '').toLowerCase().includes('risco') ? 'danger' : 'info'}>
-                    {traduzirClassificacaoSocial(item.classification)} • {item.count}
-                  </Pill>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state">Sem classificações recentes.</div>
-            )}
-
-            {providerStatuses.length ? (
-              <div className="list-stack">
-                {providerStatuses.map((provider, index) => (
-                  <div className="list-row" key={`${provider.provider || 'provider'}-${index}`}>
-                    <strong>{toText(provider.provider)}</strong>
-                    <span>
-                      {traduzirStatusGenerico(provider.status)}
-                      {provider.retryAfterSec ? ` • retry em ${provider.retryAfterSec}s` : ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state">Nenhuma telemetria social foi recebida ainda.</div>
-            )}
-          </Section>
-
-          <Section
-            title="Treinamento e runtime"
-            subtitle="Resumo do estado da IA, drift recente, jobs e últimas execuções do treinamento."
-            actions={<button type="button" className="btn btn--secondary" onClick={() => goToPage('treinamento')}>Abrir treinamento</button>}
-          >
-            <div className="mini-stat-row">
-              <StatCard label="Qualidade" value={traduzirQualidade(trainingSummary?.qualityStatus || '—')} hint="Status atual do treinamento." />
-              <StatCard label="Drift" value={traduzirNivelDrift(trainingSummary?.driftStatus || '—')} hint="Coerência recente do runtime." />
-            </div>
-
-            <StatCard
-              label="Experts ativos"
-              value={formatList(trainingSummary?.runtime?.experts || trainingSummary?.experts || [])}
-              hint="Resumo dos experts em uso no runtime atual."
-            />
-
-            {recentTrainingRuns.length ? (
-              <div className="list-stack list-stack--spaced">
-                {recentTrainingRuns.slice(0, 4).map((run, index) => (
-                  <div className="list-card" key={`${run.id || run.label || 'train-run'}-${index}`}>
-                    <strong>{toText(run.label || run.objective || 'Execução de treinamento')}</strong>
-                    <span>{formatDateTime(run.createdAt)} • {traduzirStatusGenerico(run.status)}</span>
-                    <p>{toText(run.summary || run.reason || 'Sem resumo detalhado.')}</p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {recentJobRuns.length ? (
-              <div className="list-stack">
-                {recentJobRuns.slice(0, 5).map((job, index) => (
-                  <div className="list-row" key={`${job.id || job.jobKey || 'job'}-${index}`}>
-                    <strong>{traduzirChaveJob(job.jobKey)}</strong>
-                    <span>{traduzirStatusGenerico(job.status)} • {formatDateTime(job.createdAt)}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state">Ainda não há execuções automáticas registradas nesta base.</div>
-            )}
-          </Section>
-        </div>
-      </div>
     </div>
   );
 }
