@@ -723,13 +723,8 @@ export default function DashboardPage({ ctx }) {
       tone: realizedPnl >= 0 ? 'positive' : 'danger',
       hint: (
         <>
-          <div>Taxas {baseCurrency}: {formatMoney(baseFee, baseCurrency)}</div>
-          <div>
-            Taxas BNB:{' '}
-            {hasBnbFeeField
-              ? `${formatNumber(bnbFee, 6)} BNB`
-              : 'acumulado não disponível no payload atual'}
-          </div>
+          <div>Taxas {baseCurrency}: {formatNumber(baseFee, 2)}</div>
+          <div>Taxas BNB: {formatNumber(hasBnbFeeField ? bnbFee : 0, 2)}</div>
 
         </>
       ),
