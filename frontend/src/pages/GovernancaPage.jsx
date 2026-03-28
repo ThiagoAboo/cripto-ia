@@ -1,6 +1,7 @@
 import Section from '../components/Section';
 import Pill from '../components/Pill';
 import { formatDateTime, formatNumber } from '../lib/format';
+import { mapStatusTone } from '../lib/ui';
 import {
   traduzirCanalNotificacao,
   traduzirCanalPromocao,
@@ -74,7 +75,7 @@ export default function GovernancaPage({ ctx }) {
           <div className="list-stack compact-scroll">
             {recentApprovalRequests?.length ? recentApprovalRequests.map((item) => (
               <div key={item.id} className="list-item list-item--column">
-                <div className="decision-card__row"><strong>#{item.id} • {traduzirCanalPromocao(item.targetChannel)}</strong><Pill tone={item.status === 'approved' ? 'buy' : item.status === 'rejected' ? 'high' : 'warning'}>{traduzirStatusGenerico(item.status)}</Pill></div>
+                <div className="decision-card__row"><strong>#{item.id} • {traduzirCanalPromocao(item.targetChannel)}</strong><Pill tone={mapStatusTone(traduzirStatusGenerico(item.status))}>{traduzirStatusGenerico(item.status)}</Pill></div>
                 <div className="muted">{formatDateTime(item.createdAt)} • requester {item.requestedBy || '—'}</div>
                 <div className="button-row">
                   <button className="button" disabled={promotionLoading === `approve-${item.id}` || item.status !== 'pending'} onClick={() => handleApproveRequest(item.id)}>Aprovar</button>
@@ -89,8 +90,14 @@ export default function GovernancaPage({ ctx }) {
           <div className="list-stack compact-scroll">
             {recentPromotions?.length ? recentPromotions.map((item) => (
               <div key={item.id} className="list-item list-item--column">
-                <div className="decision-card__row"><strong>#{item.id} • {traduzirCanalPromocao(item.targetChannel)}</strong><Pill tone="info">v{item.appliedVersion || '—'}</Pill></div>
-                <div className="muted">{formatDateTime(item.createdAt)} • status {traduzirStatusGenerico(item.status)}</div>
+                <div className="decision-card__row">
+                  <strong>#{item.id} • {traduzirCanalPromocao(item.targetChannel)}</strong>
+                  <div className="button-row">
+                    <Pill tone="info">v{item.appliedVersion || '—'}</Pill>
+                    <Pill tone={mapStatusTone(traduzirStatusGenerico(item.status))}>{traduzirStatusGenerico(item.status)}</Pill>
+                  </div>
+                </div>
+                <div className="muted">{formatDateTime(item.createdAt)}</div>
               </div>
             )) : <div className="muted">Nenhuma promoção recente.</div>}
 
@@ -115,14 +122,18 @@ export default function GovernancaPage({ ctx }) {
           <div className="list-stack compact-scroll top-gap">
             {policyReports?.length ? policyReports.slice(0, 6).map((item) => (
               <div key={item.id} className="list-item list-item--column">
-                <div className="decision-card__row"><strong>{traduzirGate(item.gateKey)}</strong><Pill tone={item.status === 'pass' ? 'buy' : item.status === 'warn' ? 'warning' : 'high'}>{traduzirStatusGenerico(item.status)}</Pill></div>
+                <div className="decision-card__row"><strong>{traduzirGate(item.gateKey)}</strong><Pill tone={mapStatusTone(traduzirStatusGenerico(item.status))}>{traduzirStatusGenerico(item.status)}</Pill></div>
                 <div className="muted">{formatDateTime(item.createdAt)} • warnings {formatNumber(item.warningsCount || 0, 0)}</div>
               </div>
             )) : <div className="muted">Nenhum relatório de policy recente.</div>}
 
             <strong className="top-gap">Jobs recentes</strong>
             {recentJobRuns?.length ? recentJobRuns.slice(0, 6).map((item) => (
-              <div key={item.id} className="muted">{traduzirChaveJob(item.jobKey)} • {traduzirStatusGenerico(item.status)} • {formatDateTime(item.createdAt)}</div>
+              <div key={item.id} className="alert-card">
+                <div className="decision-card__row"><strong>{traduzirChaveJob(item.jobKey)}</strong><Pill tone={mapStatusTone(traduzirStatusGenerico(item.status))}>{traduzirStatusGenerico(item.status)}</Pill></div>
+                <div className="muted">{formatDateTime(item.createdAt)}</div>
+                <div className="muted">{item.summary || item.message || 'Sem detalhe adicional.'}</div>
+              </div>
             )) : <div className="muted">Nenhum job recente.</div>}
           </div>
         </Section>
@@ -140,7 +151,10 @@ export default function GovernancaPage({ ctx }) {
             <div className="list-item list-item--column">
               <strong>Canais configurados</strong>
               {(notifications.channels || []).length ? notifications.channels.map((channel) => (
-                <div key={channel.channel} className="muted">{traduzirCanalNotificacao(channel.channel)} • {traduzirStatusGenerico(channel.status)}</div>
+                <div key={channel.channel} className="list-row">
+                  <span>{traduzirCanalNotificacao(channel.channel)}</span>
+                  <Pill tone={mapStatusTone(traduzirStatusGenerico(channel.status))}>{traduzirStatusGenerico(channel.status)}</Pill>
+                </div>
               )) : <div className="muted">Nenhum canal de notificação configurado.</div>}
             </div>
             <div className="list-item list-item--column">
@@ -185,7 +199,7 @@ export default function GovernancaPage({ ctx }) {
             <strong className="top-gap">Ações de recuperação recentes</strong>
             {recentRecoveryActions?.length ? recentRecoveryActions.map((item) => (
               <div key={item.id} className="list-item list-item--column">
-                <div className="decision-card__row"><strong>{traduzirRunbook(item.runbookKey)}</strong><Pill tone={item.status === 'success' ? 'buy' : item.status === 'warning' ? 'warning' : 'high'}>{traduzirStatusGenerico(item.status)}</Pill></div>
+                <div className="decision-card__row"><strong>{traduzirRunbook(item.runbookKey)}</strong><Pill tone={mapStatusTone(traduzirStatusGenerico(item.status))}>{traduzirStatusGenerico(item.status)}</Pill></div>
                 <div className="muted">{item.actionKey} • {formatDateTime(item.createdAt)}</div>
               </div>
             )) : <div className="muted">Nenhuma ação de recuperação recente.</div>}

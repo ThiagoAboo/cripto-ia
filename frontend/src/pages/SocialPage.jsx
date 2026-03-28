@@ -1,6 +1,7 @@
 import Section from '../components/Section';
 import Pill from '../components/Pill';
 import { formatDateTime, formatNumber } from '../lib/format';
+import { mapStatusTone } from '../lib/ui';
 import { traduzirClassificacaoSocial, traduzirSeveridade, traduzirStatusGenerico } from '../lib/dashboard';
 
 export default function SocialPage({ ctx }) {
@@ -34,7 +35,7 @@ export default function SocialPage({ ctx }) {
           <div className="list-stack compact-scroll">
             {providerStatuses?.length ? providerStatuses.map((item) => (
               <div key={item.provider} className="list-item list-item--column">
-                <div className="decision-card__row"><strong>{item.provider}</strong><Pill tone={item.status === 'healthy' ? 'buy' : item.status === 'backoff' ? 'warning' : 'high'}>{traduzirStatusGenerico(item.status)}</Pill></div>
+                <div className="decision-card__row"><strong>{item.provider}</strong><Pill tone={mapStatusTone(traduzirStatusGenerico(item.status))}>{traduzirStatusGenerico(item.status)}</Pill></div>
                 <div className="muted">Última atualização: {formatDateTime(item.updatedAt)}</div>
                 <div className="muted">Retry after: {item.retryAfterSec ? `${item.retryAfterSec}s` : '—'}</div>
               </div>

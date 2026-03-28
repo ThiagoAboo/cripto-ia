@@ -2,6 +2,7 @@ import Section from '../components/Section';
 import ConfigField from '../components/ConfigField';
 import Pill from '../components/Pill';
 import { formatDateTime, formatList, formatNumber } from '../lib/format';
+import { mapStatusTone } from '../lib/ui';
 import {
   traduzirFonte,
   traduzirModoExecucao,
@@ -100,10 +101,10 @@ export default function ConfiguracaoPage({ ctx }) {
                 Modo {traduzirModoExecucao(draftConfig.trading.mode)} • social {traduzirSimNao(draftConfig.social.enabled)} • treinamento {traduzirSimNao(draftConfig.training.enabled)}
               </div>
               <div className="button-row">
-                <Pill tone={draftConfig.trading.enabled ? 'buy' : 'warning'}>{draftConfig.trading.enabled ? 'trading ativo' : 'trading desligado'}</Pill>
+                <Pill tone={draftConfig.trading.enabled ? mapStatusTone('trading ativo') : 'warning'}>{draftConfig.trading.enabled ? 'trading ativo' : 'trading desligado'}</Pill>
                 <Pill tone={draftConfig.execution.live.enabled ? 'warning' : 'info'}>{draftConfig.execution.live.enabled ? 'live habilitado' : 'live desligado'}</Pill>
                 <Pill tone={draftConfig.training.allowSuggestedWeightsApply ? 'warning' : 'info'}>{draftConfig.training.allowSuggestedWeightsApply ? 'treinamento pode aplicar pesos' : 'treinamento só analisa'}</Pill>
-                <Pill tone={Boolean(valueOr(true, paperConfig.useBnbFeeDiscount)) ? 'info' : 'warning'}>{Boolean(valueOr(true, paperConfig.useBnbFeeDiscount)) ? 'desconto via BNB ativo' : 'desconto via BNB desligado'}</Pill>
+                <Pill tone={Boolean(valueOr(true, paperConfig.useBnbFeeDiscount)) ? mapStatusTone('desconto via BNB ativo') : 'warning'}>{Boolean(valueOr(true, paperConfig.useBnbFeeDiscount)) ? 'desconto via BNB ativo' : 'desconto via BNB desligado'}</Pill>
               </div>
             </div>
           </div>

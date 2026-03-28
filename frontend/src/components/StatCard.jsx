@@ -12,7 +12,7 @@ export default function StatCard({ label, value, hint, tone = 'default', action 
         {action ? <div className="stat-card__action">{action}</div> : null}
       </div>
 
-      <div className="stat-card__value">{safeMultilineValue(value)}</div>
+      <div className={`stat-card__value stat-card__value--${normalizedTone}`}>{safeMultilineValue(value)}</div>
 
       {hint ? <div className="stat-card__hint">{safeMultilineValue(hint)}</div> : null}
     </article>

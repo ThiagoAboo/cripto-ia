@@ -2,6 +2,7 @@ import Section from '../components/Section';
 import ConfigField from '../components/ConfigField';
 import Pill from '../components/Pill';
 import { formatDateTime, formatMoney, formatNumber, formatPercent } from '../lib/format';
+import { mapActionTone, mapStatusTone, signedClassName } from '../lib/ui';
 import { traduzirAcaoDecisao, traduzirObjetivo, traduzirRegime, traduzirStatusGenerico } from '../lib/dashboard';
 
 export default function OperacoesPage({ ctx }) {
@@ -42,8 +43,8 @@ export default function OperacoesPage({ ctx }) {
           {comparisonResult ? (
             <div className="list-item list-item--column top-gap">
               <strong>Resultado da comparação</strong>
-              <div className="muted">Baseline retorno: {formatPercent(comparisonResult?.baseline?.metrics?.returnPct || 0)} • Challenger retorno: {formatPercent(comparisonResult?.challenger?.metrics?.returnPct || 0)}</div>
-              <div className="muted">Diferença de performance: {formatNumber(comparisonResult?.comparison?.outperformancePct || 0, 2)}%</div>
+              <div className="muted">Baseline retorno: <span className={signedClassName(comparisonResult?.baseline?.metrics?.returnPct || 0)}>{formatPercent(comparisonResult?.baseline?.metrics?.returnPct || 0)}</span> • Challenger retorno: <span className={signedClassName(comparisonResult?.challenger?.metrics?.returnPct || 0)}>{formatPercent(comparisonResult?.challenger?.metrics?.returnPct || 0)}</span></div>
+              <div className="muted">Diferença de performance: <span className={signedClassName(comparisonResult?.comparison?.outperformancePct || 0)}>{formatNumber(comparisonResult?.comparison?.outperformancePct || 0, 2)}%</span></div>
             </div>
           ) : null}
         </Section>
@@ -92,9 +93,10 @@ export default function OperacoesPage({ ctx }) {
           <div className="list-stack compact-scroll">
             <strong>Cooldowns ativos</strong>
             {controlState?.activeCooldowns?.length ? controlState.activeCooldowns.map((item) => (
-              <div key={`${item.symbol}-${item.expiresAt}`} className="list-item">
-                <span>{item.symbol}</span>
-                <span className="muted">até {formatDateTime(item.expiresAt)}</span>
+              <div key={`${item.symbol}-${item.expiresAt}`} className="alert-card">
+                <div className="decision-card__row"><strong>{item.symbol}</strong><Pill tone={mapStatusTone('bloqueado')}>bloqueado</Pill></div>
+                <div className="muted">{formatDateTime(item.createdAt || item.startedAt || item.updatedAt || item.expiresAt)}</div>
+                <div className="muted">Cooldown ativo até {formatDateTime(item.expiresAt)}</div>
               </div>
             )) : <div className="muted">Sem cooldowns ativos.</div>}
 
@@ -103,10 +105,13 @@ export default function OperacoesPage({ ctx }) {
               <div key={order.id} className="decision-card">
                 <div className="decision-card__row">
                   <strong>{order.symbol}</strong>
-                  <Pill tone={order.side === 'BUY' ? 'buy' : 'sell'}>{traduzirAcaoDecisao(order.side)}</Pill>
+                  <div className="button-row">
+                    <Pill tone={mapActionTone(order.side)}>{traduzirAcaoDecisao(order.side)}</Pill>
+                    <Pill tone={mapStatusTone(traduzirStatusGenerico(order.status))}>{traduzirStatusGenerico(order.status)}</Pill>
+                  </div>
                 </div>
-                <div className="muted">{formatDateTime(order.createdAt)} • {traduzirStatusGenerico(order.status)}</div>
-                <div className="muted">Preço {formatMoney(order.price, baseCurrency)} • PnL {formatMoney(order.realizedPnl || 0, baseCurrency)}</div>
+                <div className="muted">{formatDateTime(order.createdAt)}</div>
+                <div className="muted">Preço {formatMoney(order.price, baseCurrency)} • PnL <span className={signedClassName(order.realizedPnl || 0)}>{formatMoney(order.realizedPnl || 0, baseCurrency)}</span></div>
               </div>
             )) : <div className="muted">Nenhuma ordem recente.</div>}
 
@@ -115,7 +120,7 @@ export default function OperacoesPage({ ctx }) {
               <div key={decision.id} className="decision-card">
                 <div className="decision-card__row">
                   <strong>{decision.symbol}</strong>
-                  <Pill tone={decision.action === 'BUY' ? 'buy' : decision.action === 'SELL' ? 'sell' : decision.action === 'BLOCK' ? 'high' : 'info'}>{traduzirAcaoDecisao(decision.action)}</Pill>
+                  <Pill tone={mapActionTone(decision.action)}>{traduzirAcaoDecisao(decision.action)}</Pill>
                 </div>
                 <div className="muted">{formatDateTime(decision.createdAt)} • confiança {formatPercent(decision.confidence || 0)}</div>
                 <div className="muted">{decision.reason || decision.summary || 'Sem resumo.'}</div>
@@ -131,7 +136,7 @@ export default function OperacoesPage({ ctx }) {
             {recentBacktests?.length ? recentBacktests.map((item) => (
               <div key={item.id} className="list-item list-item--column">
                 <div className="decision-card__row"><strong>#{item.id} • {item.symbol}</strong><Pill tone="info">{item.interval}</Pill></div>
-                <div className="muted">{formatDateTime(item.createdAt)} • retorno {formatPercent(item.metrics?.returnPct || 0)}</div>
+                <div className="muted">{formatDateTime(item.createdAt)} • retorno <span className={signedClassName(item.metrics?.returnPct || 0)}>{formatPercent(item.metrics?.returnPct || 0)}</span></div>
                 <div className="muted">Regime {traduzirRegime(item.regimeLabel)} • win rate {formatPercent(item.metrics?.winRate || 0)}</div>
               </div>
             )) : <div className="muted">Nenhum backtest carregado.</div>}

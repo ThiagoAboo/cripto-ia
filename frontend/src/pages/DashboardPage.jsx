@@ -1106,12 +1106,17 @@ export default function DashboardPage({ ctx }) {
                     <div key={`${toText(order.symbol, 'ordem')}-${index}`} className="alert-card">
                       <div className="alert-card__title-row">
                         <strong>{toText(order.symbol)}</strong>
-                        <Pill tone={mapActionTone(`${order.side || ''} ${sideLabel}`)}>{sideLabel}</Pill>
+                        <div className="button-row">
+                          <Pill tone={mapActionTone(`${order.side || ''} ${sideLabel}`)}>{sideLabel}</Pill>
+                          <Pill tone={mapStatusTone(status)}>{status}</Pill>
+                        </div>
                       </div>
-                      {isMeaningful(orderMeta) ? <p>{orderMeta}</p> : null}
+                      {isMeaningful(formatOptionalDateTime(order.createdAt)) ? <p>{formatOptionalDateTime(order.createdAt)}</p> : null}
                       <p>
                         Preço: {formatMaybeMoney(order.price, baseCurrency)} • PnL:{' '}
-                        {formatMaybeMoney(order.realizedPnl, baseCurrency)}
+                        <span className={Number(order.realizedPnl || 0) >= 0 ? 'value-positive' : 'value-negative'}>
+                          {formatMaybeMoney(order.realizedPnl, baseCurrency)}
+                        </span>
                       </p>
                       {isMeaningful(orderReason) ? <p>Motivo: {toText(orderReason)}</p> : null}
                     </div>

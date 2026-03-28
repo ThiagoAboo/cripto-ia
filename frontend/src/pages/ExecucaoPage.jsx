@@ -2,6 +2,7 @@ import Section from '../components/Section';
 import ConfigField from '../components/ConfigField';
 import Pill from '../components/Pill';
 import { formatDateTime, formatMoney, formatNumber } from '../lib/format';
+import { mapStatusTone, signedClassName } from '../lib/ui';
 import { traduzirCanalPromocao, traduzirModoExecucao, traduzirSimNao, traduzirStatusGenerico, traduzirTipoAcaoExecucao } from '../lib/dashboard';
 
 export default function ExecucaoPage({ ctx }) {
@@ -43,7 +44,7 @@ export default function ExecucaoPage({ ctx }) {
             <div className="list-item list-item--column">
               <strong>Estado atual</strong>
               <div className="button-row">
-                <Pill tone={controlState?.emergencyStop ? 'high' : controlState?.maintenanceMode ? 'warning' : controlState?.isPaused ? 'warning' : 'buy'}>
+                <Pill tone={mapStatusTone(controlState?.emergencyStop ? 'emergência' : controlState?.maintenanceMode ? 'manutenção' : controlState?.isPaused ? 'pausado' : 'ativo')}>
                   {controlState?.emergencyStop ? 'emergência' : controlState?.maintenanceMode ? 'manutenção' : controlState?.isPaused ? 'pausado' : 'ativo'}
                 </Pill>
                 {controlState?.pauseReason ? <span className="muted">Motivo: {controlState.pauseReason}</span> : null}
@@ -51,7 +52,7 @@ export default function ExecucaoPage({ ctx }) {
             </div>
             <div className="list-item list-item--column">
               <strong>Guardrails</strong>
-              <div className="muted">PnL diário: {formatMoney(controlState?.guardrails?.dailyRealizedPnl || 0, baseCurrency)} • loss streak: {formatNumber(controlState?.guardrails?.consecutiveLosses || 0, 0)}</div>
+              <div className="muted">PnL diário: <span className={signedClassName(controlState?.guardrails?.dailyRealizedPnl || 0)}>{formatMoney(controlState?.guardrails?.dailyRealizedPnl || 0, baseCurrency)}</span> • loss streak: {formatNumber(controlState?.guardrails?.consecutiveLosses || 0, 0)}</div>
             </div>
           </div>
         </Section>
@@ -63,7 +64,7 @@ export default function ExecucaoPage({ ctx }) {
             <strong>Status do adaptador</strong>
             <div className="muted">Modo: {traduzirModoExecucao(execution.mode)} • provedor: {execution.provider} • testnet: {traduzirSimNao(execution.useTestnet)} • simulação: {traduzirSimNao(execution.dryRun)}</div>
             <div className="button-row">
-              <Pill tone={execution.liveReady ? 'buy' : execution.mode === 'live' ? 'warning' : 'info'}>{execution.liveReady ? 'pronto para real' : execution.mode === 'live' ? 'real incompleto' : 'simulado ativo'}</Pill>
+              <Pill tone={mapStatusTone(execution.liveReady ? 'pronto para real' : execution.mode === 'live' ? 'real incompleto' : 'simulado ativo')}>{execution.liveReady ? 'pronto para real' : execution.mode === 'live' ? 'real incompleto' : 'simulado ativo'}</Pill>
               {execution.supervised ? <Pill tone="warning">supervisionado</Pill> : null}
               {execution.requireExplicitConfirmation ? <Pill tone="high">confirmação explícita</Pill> : null}
             </div>

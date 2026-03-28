@@ -4,6 +4,7 @@ import Pill from '../components/Pill';
 import SparklineChart from '../components/SparklineChart';
 import { getApiBaseUrl } from '../lib/api';
 import { formatMoney, formatNumber, formatPercent } from '../lib/format';
+import { signedClassName } from '../lib/ui';
 
 const STORAGE_KEY = 'criptoia.mercado.v2';
 const MAX_SELECTED = 6;
@@ -474,7 +475,7 @@ export default function MercadoPage({ ctx = {} }) {
             <article className="market-compare-card">
               <strong>Maior variação 24h</strong>
               <span>{comparison.leaderByPriceChange}</span>
-              <small>Diferença: {formatPercent(comparison.changeGapPct, 2)}</small>
+              <small>Diferença: <span className={signedClassName(comparison.changeGapPct)}>{formatPercent(comparison.changeGapPct, 2)}</span></small>
             </article>
             <article className="market-compare-card">
               <strong>Maior volume</strong>
@@ -483,7 +484,7 @@ export default function MercadoPage({ ctx = {} }) {
             </article>
             <article className="market-compare-card">
               <strong>Diferença de preço</strong>
-              <span>{formatPercent(comparison.priceGapPct, 2)}</span>
+              <span className={signedClassName(comparison.priceGapPct)}>{formatPercent(comparison.priceGapPct, 2)}</span>
               <small>Comparação em {comparison.quoteAsset}</small>
             </article>
           </div>

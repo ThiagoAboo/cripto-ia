@@ -506,7 +506,7 @@ export default function TreinamentoPage() {
                     <div>{item.key}</div>
                     <div>runtime: {formatNumber(item.runtime, 4)}</div>
                     <div>config: {formatNumber(item.config, 4)}</div>
-                    <div className={item.delta === 0 ? 'muted' : item.delta > 0 ? 'training-success' : 'training-warning'}>
+                    <div className={item.delta === 0 ? 'muted' : item.delta > 0 ? 'training-success' : 'training-danger'}>
                       Δ {formatNumber(item.delta, 4)}
                     </div>
                   </div>

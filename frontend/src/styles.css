@@ -292,6 +292,13 @@ a { color: inherit; }
   font-weight: 800;
   line-height: 1.2;
 }
+.stat-card__value--positive,
+.stat-card--positive .stat-card__value { color: var(--success); }
+.stat-card__value--danger,
+.stat-card--danger .stat-card__value { color: var(--danger); }
+.value-positive { color: var(--success) !important; }
+.value-negative { color: var(--danger) !important; }
+.value-neutral { color: inherit; }
 .stat-card__hint,
 .stat-card__stacked-hint {
   color: var(--muted);
