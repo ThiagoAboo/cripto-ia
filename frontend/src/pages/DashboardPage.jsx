@@ -701,9 +701,6 @@ export default function DashboardPage({ ctx }) {
     baseCurrency,
   );
   const runtimeEntries = buildRuntimeEntries(trainingRuns, jobRuns);
-  const bnbReserveBlocks = orders.filter((order) =>
-    String(extractOrderReason(order) || '').includes('bnb_reserve_protection'),
-  ).length;
 
   const topCards = [
     {
@@ -733,9 +730,7 @@ export default function DashboardPage({ ctx }) {
               ? `${formatNumber(bnbFee, 6)} BNB`
               : 'acumulado não disponível no payload atual'}
           </div>
-          {bnbReserveBlocks > 0 ? (
-            <div>{bnbReserveBlocks} ordem(ns) recente(s) rejeitada(s) por reserva mínima de BNB.</div>
-          ) : null}
+
         </>
       ),
     },
