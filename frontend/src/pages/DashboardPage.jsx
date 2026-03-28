@@ -115,25 +115,69 @@ function joinMetaParts(parts = []) {
   return parts.filter(isMeaningful).join(' • ');
 }
 
+function pickDateCandidate(record = {}) {
+  return pickFirst(
+    record?.finishedAt,
+    record?.completedAt,
+    record?.endedAt,
+    record?.executedAt,
+    record?.runAt,
+    record?.startedAt,
+    record?.createdAt,
+    record?.created_at,
+    record?.decidedAt,
+    record?.updatedAt,
+    record?.timestamp,
+    record?.at,
+  );
+}
+
+
+function buildSummaryList(items = [], emptyLabel = 'Sem detalhe adicional.') {
+  if (!items.length) {
+    return <div className="empty-state">{emptyLabel}</div>;
+  }
+
+  return (
+    <div className="list-stack compact-scroll">
+      {items.map((item, index) => (
+        <div key={`${item.key || item.title || 'item'}-${index}`} className="list-card">
+          <strong>{item.title}</strong>
+          {isMeaningful(item.meta) ? <p>{item.meta}</p> : null}
+          {isMeaningful(item.detail) ? <p>{item.detail}</p> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function readFeeBreakdown(portfolio = {}) {
-  const baseFee =
-    Number(
-      portfolio?.feesPaidQuote ??
-        portfolio?.feesQuote ??
-        portfolio?.feesPaid ??
-        portfolio?.quoteFee ??
-        0,
-    ) || 0;
-  const bnbFee =
-    Number(
-      portfolio?.feesPaidBnb ??
-        portfolio?.feesBnb ??
-        portfolio?.bnbFeesPaid ??
-        portfolio?.bnbFee ??
-        0,
-    ) || 0;
-  return { baseFee, bnbFee };
+  const baseFeeRaw = pickFirst(
+    portfolio?.feesPaidQuote,
+    portfolio?.feesQuote,
+    portfolio?.feesPaid,
+    portfolio?.quoteFee,
+    portfolio?.feeBreakdown?.quote,
+    portfolio?.fees?.quote,
+    portfolio?.fees?.baseCurrency,
+  );
+
+  const bnbFeeRaw = pickFirst(
+    portfolio?.feesPaidBnb,
+    portfolio?.feesBnb,
+    portfolio?.bnbFeesPaid,
+    portfolio?.bnbFee,
+    portfolio?.feeBreakdown?.bnb,
+    portfolio?.fees?.bnb,
+    portfolio?.fees?.bnbPaid,
+    portfolio?.execution?.fees?.bnb,
+  );
+
+  return {
+    baseFee: Number(baseFeeRaw ?? 0) || 0,
+    bnbFee: Number(bnbFeeRaw ?? 0) || 0,
+    hasBnbFeeField: bnbFeeRaw !== undefined && bnbFeeRaw !== null,
+  };
 }
 
 function readLossStreak(controlState = {}, portfolio = {}) {
@@ -141,6 +185,8 @@ function readLossStreak(controlState = {}, portfolio = {}) {
     controlState?.lossStreak,
     controlState?.currentLossStreak,
     controlState?.consecutiveLosses,
+    controlState?.guardrails?.lossStreak,
+    controlState?.guardrails?.consecutiveLosses,
     portfolio?.lossStreak,
     portfolio?.consecutiveLosses,
   );
@@ -253,6 +299,169 @@ function buildTrainingMetrics(trainingSummary = {}) {
   ].filter(Boolean);
 }
 
+function buildStrongSocialEntries(socialSummary = {}) {
+  const candidateArrays = [
+    socialSummary?.strongSignals,
+    socialSummary?.strongItems,
+    socialSummary?.strongAssets,
+    socialSummary?.strongCoins,
+    socialSummary?.strongPairs,
+    socialSummary?.recentStrongAssets,
+    socialSummary?.topStrong,
+    socialSummary?.highlights,
+    socialSummary?.summary?.strong,
+    socialSummary?.recommendations?.strong,
+  ];
+
+  const rawItems = candidateArrays.find((value) => Array.isArray(value) && value.length) || [];
+
+  return rawItems.slice(0, 6).map((item, index) => {
+    if (typeof item === 'string') {
+      return {
+        key: `forte-${index}`,
+        title: item,
+        meta: '',
+        detail: '',
+      };
+    }
+
+    const title = toText(
+      item?.symbol || item?.asset || item?.pair || item?.coin || item?.label || item?.title || item?.name,
+      'Item forte',
+    );
+
+    const meta = joinMetaParts([
+      isMeaningful(item?.classification)
+        ? traduzirClassificacaoSocial(item.classification)
+        : '',
+      isMeaningful(item?.score) || item?.score === 0
+        ? `score ${formatMaybeNumber(item.score, 2)}`
+        : '',
+      isMeaningful(item?.count) || item?.count === 0
+        ? `menções ${formatMaybeNumber(item.count, 0)}`
+        : '',
+    ]);
+
+    const detail = joinMetaParts([
+      toText(item?.provider || item?.source || item?.channel, ''),
+      toText(item?.reason || item?.summary || item?.message, ''),
+    ]);
+
+    return {
+      key: `${title}-${index}`,
+      title,
+      meta,
+      detail,
+    };
+  });
+}
+
+function buildCooldownEntries(cooldowns = []) {
+  return cooldowns.map((item, index) => ({
+    key: `${toText(item.symbol, 'cooldown')}-${index}`,
+    title: toText(item.symbol, 'Cooldown'),
+    meta: joinMetaParts([
+      'bloqueio ativo',
+      formatOptionalDateTime(item.activeUntil || item.expiresAt),
+    ]),
+    detail: isMeaningful(item.reason)
+      ? toText(item.reason)
+      : 'Proteção temporária aberta para este ativo.',
+  }));
+}
+
+function buildLossStreakEntries(controlState = {}, portfolio = {}, orders = [], currency = 'USDT') {
+  const candidateArrays = [
+    controlState?.lossStreakDetails,
+    controlState?.guardrails?.lossStreakDetails,
+    controlState?.recentLosses,
+    controlState?.guardrails?.recentLosses,
+    portfolio?.recentLosses,
+    portfolio?.lossHistory,
+  ];
+
+  const rawEntries = candidateArrays.find((value) => Array.isArray(value) && value.length);
+  if (rawEntries?.length) {
+    return rawEntries.slice(0, 6).map((item, index) => ({
+      key: `loss-${index}`,
+      title: toText(item?.symbol || item?.asset || item?.pair || item?.title, 'Perda recente'),
+      meta: joinMetaParts([
+        formatOptionalDateTime(pickDateCandidate(item)),
+        isMeaningful(item?.realizedPnl) || item?.realizedPnl === 0
+          ? formatMaybeMoney(item.realizedPnl, currency)
+          : '',
+      ]),
+      detail: toText(item?.reason || item?.summary || item?.message, ''),
+    }));
+  }
+
+  const negativeOrders = safeArray(orders)
+    .filter((item) => Number(item?.realizedPnl) < 0)
+    .slice(0, 6)
+    .map((item, index) => ({
+      key: `loss-order-${index}`,
+      title: toText(item?.symbol, 'Perda recente'),
+      meta: joinMetaParts([
+        formatOptionalDateTime(pickDateCandidate(item)),
+        formatMaybeMoney(item?.realizedPnl, currency),
+      ]),
+      detail: isMeaningful(extractOrderReason(item))
+        ? `Motivo: ${toText(extractOrderReason(item))}`
+        : 'Perda registrada nas ordens recentes.',
+    }));
+
+  return negativeOrders;
+}
+
+function buildRuntimeEntries(trainingRuns = [], jobRuns = []) {
+  const runtimeEntries = [
+    ...trainingRuns.map((run, index) => ({
+      key: `training-${index}`,
+      sortDateRaw: pickDateCandidate(run),
+      label: toText(
+        run.label || run.objective || run.jobKey || run.name,
+        'Execução de treinamento',
+      ),
+      meta: joinMetaParts([
+        toText(traduzirStatusGenerico(run.status || run.state), ''),
+        formatOptionalDateTime(pickDateCandidate(run)),
+      ]),
+      detail: toText(
+        pickFirst(run.summary, run.reason, run.message, run.description, run.note, run.result),
+        '',
+      ),
+    })),
+    ...jobRuns.map((job, index) => ({
+      key: `job-${index}`,
+      sortDateRaw: pickDateCandidate(job),
+      label: toText(
+        traduzirChaveJob(job.jobKey || job.key || job.name),
+        'Execução automática',
+      ),
+      meta: joinMetaParts([
+        toText(traduzirStatusGenerico(job.status || job.state), ''),
+        formatOptionalDateTime(pickDateCandidate(job)),
+      ]),
+      detail: toText(
+        pickFirst(job.summary, job.reason, job.message, job.detail, job.result, job.note),
+        '',
+      ),
+    })),
+  ];
+
+  return runtimeEntries
+    .map((entry, index) => ({
+      ...entry,
+      originalIndex: index,
+      sortValue: Number.isFinite(Date.parse(entry.sortDateRaw)) ? Date.parse(entry.sortDateRaw) : 0,
+    }))
+    .sort((a, b) => {
+      if (a.sortValue === b.sortValue) return a.originalIndex - b.originalIndex;
+      return b.sortValue - a.sortValue;
+    })
+    .slice(0, 8);
+}
+
 export default function DashboardPage({ ctx }) {
   const {
     health,
@@ -284,7 +493,7 @@ export default function DashboardPage({ ctx }) {
   const trainingRuns = safeArray(recentTrainingRuns).slice(0, 4);
   const jobRuns = safeArray(recentJobRuns).slice(0, 5);
 
-  const { baseFee, bnbFee } = readFeeBreakdown(currentPortfolio);
+  const { baseFee, bnbFee, hasBnbFeeField } = readFeeBreakdown(currentPortfolio);
   const realizedPnl = Number(currentPortfolio?.realizedPnl || 0);
   const equity = Number(currentPortfolio?.equity || 0);
   const cashBalance = Number(currentPortfolio?.cashBalance || 0);
@@ -293,6 +502,22 @@ export default function DashboardPage({ ctx }) {
     .filter((item) => String(item.classification || '').toUpperCase() === 'FORTE')
     .reduce((sum, item) => sum + Number(item.count || 0), 0);
   const trainingMetrics = buildTrainingMetrics(trainingSummary);
+  const strongSocialEntries = buildStrongSocialEntries(socialSummary);
+  const providerEntries = providers.map((provider, index) => {
+    const entry = buildProviderDetail(provider);
+    return {
+      key: `${entry.providerName}-${index}`,
+      title: entry.providerName,
+      meta: entry.detail,
+      detail: '',
+    };
+  });
+  const cooldownEntries = buildCooldownEntries(cooldowns);
+  const lossStreakEntries = buildLossStreakEntries(controlState, currentPortfolio, orders, baseCurrency);
+  const runtimeEntries = buildRuntimeEntries(trainingRuns, jobRuns);
+  const bnbReserveBlocks = orders.filter((order) =>
+    String(extractOrderReason(order) || '').includes('bnb_reserve_protection'),
+  ).length;
 
   const topCards = [
     {
@@ -316,7 +541,15 @@ export default function DashboardPage({ ctx }) {
       hint: (
         <>
           <div>Taxas {baseCurrency}: {formatMoney(baseFee, baseCurrency)}</div>
-          <div>Taxas BNB: {formatNumber(bnbFee, 6)} BNB</div>
+          <div>
+            Taxas BNB:{' '}
+            {hasBnbFeeField
+              ? `${formatNumber(bnbFee, 6)} BNB`
+              : 'acumulado não disponível no payload atual'}
+          </div>
+          {bnbReserveBlocks > 0 ? (
+            <div>{bnbReserveBlocks} ordem(ns) recente(s) rejeitada(s) por reserva mínima de BNB.</div>
+          ) : null}
         </>
       ),
     },
@@ -360,49 +593,24 @@ export default function DashboardPage({ ctx }) {
             </button>
           }
         >
-          <div className="mini-stat-row">
-            <StatCard
-              label="Cooldowns ativos"
-              value={formatNumber(cooldowns.length, 0)}
-              tone={cooldowns.length > 0 ? 'warning' : 'default'}
-              hint={
-                cooldowns.length
-                  ? `${cooldowns.length} bloqueio(s) temporário(s) aberto(s) agora.`
-                  : 'Sem travas abertas neste momento.'
-              }
-            />
-            <StatCard
-              label="Loss streak"
-              value={formatNumber(lossStreak, 0)}
-              tone={lossStreak > 0 ? 'warning' : 'default'}
-              hint={
-                lossStreak > 0
-                  ? 'Monitorado pela camada de risco operacional.'
-                  : 'Sem sequência recente de perdas.'
-              }
-            />
-          </div>
-
-          {cooldowns.length ? (
-            <div className="list-stack compact-scroll">
-              {cooldowns.map((item, index) => (
-                <div
-                  key={`${toText(item.symbol, 'cooldown')}-${index}`}
-                  className="list-card"
-                >
-                  <strong>{toText(item.symbol, 'Cooldown')}</strong>
-                  <p>
-                    Até {formatDateTime(item.activeUntil || item.expiresAt)}
-                    {isMeaningful(item.reason) ? ` • ${toText(item.reason)}` : ''}
-                  </p>
+          <div className="dual-list-grid">
+            <div>
+              <h3 className="subsection-title">Cooldowns ativos</h3>
+              {buildSummaryList(cooldownEntries, 'Sem travas abertas neste momento.')}
+            </div>
+            <div>
+              <h3 className="subsection-title">Loss streak</h3>
+              {lossStreakEntries.length ? (
+                buildSummaryList(lossStreakEntries, 'Sem sequência recente de perdas.')
+              ) : (
+                <div className="empty-state">
+                  {lossStreak > 0
+                    ? `Sequência atual de ${formatNumber(lossStreak, 0)} perda(s), sem detalhamento no payload atual.`
+                    : 'Sem sequência recente de perdas.'}
                 </div>
-              ))}
+              )}
             </div>
-          ) : (
-            <div className="empty-state">
-              Sem travas abertas neste momento.
-            </div>
-          )}
+          </div>
         </Section>
 
         <Section
@@ -414,54 +622,39 @@ export default function DashboardPage({ ctx }) {
             </button>
           }
         >
-          <div className="mini-stat-row">
-            <StatCard
-              label="Fortes"
-              value={formatNumber(strongSocialCount, 0)}
-              tone={strongSocialCount > 0 ? 'positive' : 'default'}
-              hint={
-                strongSocialCount > 0
-                  ? 'Classificações fortes no radar atual.'
-                  : 'Nenhuma classificação forte recente.'
-              }
-            />
-            <StatCard
-              label="Providers"
-              value={formatNumber(providers.length, 0)}
-              tone={providers.length > 0 ? 'positive' : 'default'}
-              hint={
-                providers.length > 0
-                  ? 'Fontes sociais monitoradas.'
-                  : 'Nenhuma telemetria social recebida ainda.'
-              }
-            />
+          <div className="dual-list-grid">
+            <div>
+              <h3 className="subsection-title">Fortes</h3>
+              {strongSocialEntries.length ? (
+                buildSummaryList(strongSocialEntries, 'Nenhum ativo forte no payload atual.')
+              ) : topClassifications.length ? (
+                <div className="list-stack compact-scroll">
+                  {topClassifications.map((item, index) => (
+                    <div key={`${item.classification || 'social'}-${index}`} className="list-card">
+                      <strong>{traduzirClassificacaoSocial(item.classification)}</strong>
+                      <p>{formatNumber(item.count, 0)} ocorrência(s) no resumo social.</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">Nenhuma classificação forte recente.</div>
+              )}
+            </div>
+            <div>
+              <h3 className="subsection-title">Providers</h3>
+              {providerEntries.length ? (
+                buildSummaryList(providerEntries, 'Nenhum provider social disponível.')
+              ) : (
+                <div className="empty-state">Nenhuma telemetria social recebida ainda.</div>
+              )}
+            </div>
           </div>
 
-          {topClassifications.length ? (
+          {strongSocialCount > 0 ? (
             <div className="pill-cloud">
-              {topClassifications.map((item, index) => (
-                <Pill key={`${item.classification || 'social'}-${index}`} tone="info">
-                  {traduzirClassificacaoSocial(item.classification)} • {formatNumber(item.count, 0)}
-                </Pill>
-              ))}
+              <Pill tone="success">{formatNumber(strongSocialCount, 0)} forte(s) no radar</Pill>
             </div>
           ) : null}
-
-          {providers.length ? (
-            <div className="list-stack compact-scroll">
-              {providers.map((provider, index) => {
-                const entry = buildProviderDetail(provider);
-                return (
-                  <div key={`${entry.providerName}-${index}`} className="list-row">
-                    <strong>{entry.providerName}</strong>
-                    <span>{entry.detail}</span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : topClassifications.length ? null : (
-            <div className="empty-state">Sem classificações recentes.</div>
-          )}
         </Section>
       </div>
 
@@ -537,50 +730,17 @@ export default function DashboardPage({ ctx }) {
             <div className="empty-state">Sem snapshot executivo do treinamento neste momento.</div>
           )}
 
-          {trainingRuns.length ? (
+          {runtimeEntries.length ? (
             <div className="list-stack compact-scroll">
-              {trainingRuns.map((run, index) => {
-                const trainingMeta = joinMetaParts([
-                  formatOptionalDateTime(run.createdAt),
-                  toText(traduzirStatusGenerico(run.status), ''),
-                ]);
-                const trainingSummaryText = pickFirst(
-                  run.summary,
-                  run.reason,
-                  run.message,
-                  run.description,
-                );
-
-                return (
-                  <div key={`${toText(run.label || run.objective, 'treino')}-${index}`} className="list-card">
-                    <strong>{toText(run.label || run.objective || 'Execução de treinamento')}</strong>
-                    {isMeaningful(trainingMeta) ? <p>{trainingMeta}</p> : null}
-                    {isMeaningful(trainingSummaryText) ? (
-                      <p>{toText(trainingSummaryText)}</p>
-                    ) : null}
-                  </div>
-                );
-              })}
+              {runtimeEntries.map((entry) => (
+                <div key={entry.key} className="list-card">
+                  <strong>{entry.label}</strong>
+                  {isMeaningful(entry.meta) ? <p>{entry.meta}</p> : null}
+                  {isMeaningful(entry.detail) ? <p>{entry.detail}</p> : null}
+                </div>
+              ))}
             </div>
-          ) : null}
-
-          {jobRuns.length ? (
-            <div className="list-stack compact-scroll">
-              {jobRuns.map((job, index) => {
-                const jobMeta = joinMetaParts([
-                  toText(traduzirStatusGenerico(job.status), ''),
-                  formatOptionalDateTime(job.createdAt || job.startedAt || job.finishedAt),
-                ]);
-
-                return (
-                  <div key={`${toText(job.jobKey, 'job')}-${index}`} className="list-row">
-                    <strong>{traduzirChaveJob(job.jobKey)}</strong>
-                    {isMeaningful(jobMeta) ? <span>{jobMeta}</span> : null}
-                  </div>
-                );
-              })}
-            </div>
-          ) : trainingRuns.length ? null : (
+          ) : (
             <div className="empty-state">Ainda não há execuções automáticas registradas nesta base.</div>
           )}
         </Section>
@@ -636,7 +796,15 @@ export default function DashboardPage({ ctx }) {
               <div className="list-stack compact-scroll">
                 {decisions.map((decision, index) => {
                   const decisionMeta = joinMetaParts([
-                    formatOptionalDateTime(decision.createdAt),
+                    formatOptionalDateTime(
+                      pickFirst(
+                        decision.createdAt,
+                        decision.created_at,
+                        decision.decidedAt,
+                        decision.timestamp,
+                        decision.updatedAt,
+                      ),
+                    ),
                     isMeaningful(decision.confidence)
                       ? `confiança ${formatOptionalPercent(decision.confidence, 2)}`
                       : '',
