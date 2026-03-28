@@ -413,40 +413,131 @@ function buildLossStreakEntries(controlState = {}, portfolio = {}, orders = [], 
   return negativeOrders;
 }
 
+function mapStatusTone(status) {
+  const raw = normalizeText(status).toLowerCase();
+  if (!raw) return 'neutral';
+
+  if (
+    [
+      'ok',
+      'success',
+      'successful',
+      'completed',
+      'complete',
+      'done',
+      'healthy',
+      'ready',
+      'ativo',
+      'online',
+      'concluido',
+      'concluído',
+    ].some((token) => raw.includes(token))
+  ) {
+    return 'success';
+  }
+
+  if (
+    [
+      'error',
+      'erro',
+      'failed',
+      'failure',
+      'critical',
+      'blocked',
+      'bloqueado',
+      'crash',
+      'offline',
+      'invalid',
+    ].some((token) => raw.includes(token))
+  ) {
+    return 'danger';
+  }
+
+  if (
+    [
+      'warning',
+      'warn',
+      'pending',
+      'degraded',
+      'retry',
+      'paused',
+      'pausado',
+      'attention',
+      'aguardando',
+      'partial',
+      'parcial',
+    ].some((token) => raw.includes(token))
+  ) {
+    return 'warning';
+  }
+
+  if (
+    [
+      'running',
+      'processing',
+      'in_progress',
+      'in-progress',
+      'started',
+      'executing',
+      'queued',
+      'loading',
+      'sincronizando',
+      'sincronizado',
+      'em andamento',
+    ].some((token) => raw.includes(token))
+  ) {
+    return 'info';
+  }
+
+  return 'neutral';
+}
+
 function buildRuntimeEntries(trainingRuns = [], jobRuns = []) {
   const runtimeEntries = [
-    ...trainingRuns.map((run, index) => ({
-      key: `training-${index}`,
-      sortDateRaw: pickDateCandidate(run),
-      label: toText(
-        run.label || run.objective || run.jobKey || run.name,
-        'Execução de treinamento',
-      ),
-      meta: joinMetaParts([
-        toText(traduzirStatusGenerico(run.status || run.state), ''),
-        formatOptionalDateTime(pickDateCandidate(run)),
-      ]),
-      detail: toText(
-        pickFirst(run.summary, run.reason, run.message, run.description, run.note, run.result),
+    ...trainingRuns.map((run, index) => {
+      const rawStatus = pickFirst(run.status, run.state, run.health, run.resultStatus);
+      const translatedStatus = toText(traduzirStatusGenerico(rawStatus), 'Sem status');
+      const dateText = formatOptionalDateTime(pickDateCandidate(run));
+      const detail = toText(
+        pickFirst(run.reason, run.summary, run.message, run.description, run.note, run.result),
         '',
-      ),
-    })),
-    ...jobRuns.map((job, index) => ({
-      key: `job-${index}`,
-      sortDateRaw: pickDateCandidate(job),
-      label: toText(
-        traduzirChaveJob(job.jobKey || job.key || job.name),
-        'Execução automática',
-      ),
-      meta: joinMetaParts([
-        toText(traduzirStatusGenerico(job.status || job.state), ''),
-        formatOptionalDateTime(pickDateCandidate(job)),
-      ]),
-      detail: toText(
-        pickFirst(job.summary, job.reason, job.message, job.detail, job.result, job.note),
+      );
+
+      return {
+        key: `training-${index}`,
+        sortDateRaw: pickDateCandidate(run),
+        label: toText(
+          traduzirChaveJob(run.jobKey || run.key || run.label || run.objective || run.name),
+          'Execução de treinamento',
+        ),
+        statusLabel: translatedStatus,
+        statusTone: mapStatusTone(translatedStatus || rawStatus),
+        dateText,
+        detail,
+      };
+    }),
+    ...jobRuns.map((job, index) => {
+      const rawStatus = pickFirst(job.status, job.state, job.health, job.resultStatus);
+      const translatedStatus = toText(traduzirStatusGenerico(rawStatus), 'Sem status');
+      const dateText = formatOptionalDateTime(pickDateCandidate(job));
+      const detail = toText(
+        pickFirst(job.reason, job.summary, job.message, job.detail, job.result, job.note),
         '',
-      ),
-    })),
+      );
+
+      return {
+        key: `job-${index}`,
+        sortDateRaw: pickDateCandidate(job),
+        label: toText(
+          traduzirChaveJob(job.jobKey || job.key || job.name || job.label),
+          'Execução automática',
+        ),
+        statusLabel: translatedStatus,
+        statusTone: mapStatusTone(translatedStatus || rawStatus),
+        dateText,
+        detail,
+      };
+    }),
   ];
 
   return runtimeEntries
@@ -733,9 +824,12 @@ export default function DashboardPage({ ctx }) {
           {runtimeEntries.length ? (
             <div className="list-stack compact-scroll">
               {runtimeEntries.map((entry) => (
-                <div key={entry.key} className="list-card">
-                  <strong>{entry.label}</strong>
-                  {isMeaningful(entry.meta) ? <p>{entry.meta}</p> : null}
+                <div key={entry.key} className="alert-card">
+                  <div className="alert-card__title-row">
+                    <strong>{entry.label}</strong>
+                    <Pill tone={entry.statusTone}>{entry.statusLabel}</Pill>
+                  </div>
+                  {isMeaningful(entry.dateText) ? <p>{entry.dateText}</p> : null}
                   {isMeaningful(entry.detail) ? <p>{entry.detail}</p> : null}
                 </div>
               ))}
