@@ -1,8 +1,10 @@
 function buildPoints(values = [], width, height, padding) {
   if (!Array.isArray(values) || values.length < 2) return '';
+
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
+
   return values
     .map((value, index) => {
       const x = padding + (index * (width - padding * 2)) / Math.max(values.length - 1, 1);
@@ -23,8 +25,14 @@ export default function SparklineChart({ values = [], positive = true, ariaLabel
   }
 
   return (
-    <svg className={`sparkline ${positive ? 'sparkline--positive' : 'sparkline--negative'}`} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
-      <polyline fill="none" strokeWidth="2.5" points={points} />
+    <svg
+      className={`sparkline ${positive ? 'sparkline--positive' : 'sparkline--negative'}`}
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={ariaLabel}
+      preserveAspectRatio="none"
+    >
+      <polyline fill="none" stroke="currentColor" strokeWidth="2.5" points={points} />
     </svg>
   );
 }
