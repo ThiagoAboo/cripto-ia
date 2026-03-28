@@ -32,7 +32,15 @@ export default function SparklineChart({ values = [], positive = true, ariaLabel
       aria-label={ariaLabel}
       preserveAspectRatio="none"
     >
-      <polyline fill="none" stroke="currentColor" strokeWidth="2.5" points={points} />
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+        points={points}
+      />
     </svg>
   );
 }
