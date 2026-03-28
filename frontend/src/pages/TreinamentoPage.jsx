@@ -1,4 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import Section from '../components/Section';
+import ConfigField from '../components/ConfigField';
+import Pill from '../components/Pill';
 import {
   activateTrainingRuntimeRegime,
   applyTrainingRegimePreset,
@@ -57,84 +60,49 @@ function translateStatus(value) {
   return map[String(value || '').toLowerCase()] || (value ? String(value) : '—');
 }
 
-const shellCardStyle = {
-  background: '#111827',
-  border: '1px solid #1f2937',
-  borderRadius: 16,
-  padding: 18,
-  color: '#e5e7eb',
-  boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-};
-
-const sectionGridStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-  gap: 16,
-};
-
-const primaryButtonStyle = {
-  background: '#2563eb',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 10,
-  padding: '10px 14px',
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-
-const secondaryButtonStyle = {
-  background: '#1f2937',
-  color: '#e5e7eb',
-  border: '1px solid #374151',
-  borderRadius: 10,
-  padding: '10px 14px',
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-
-function SectionTitle({ children }) {
-  return <h3 style={{ margin: 0, fontSize: 16 }}>{children}</h3>;
+function getStatusTone(value) {
+  const normalized = String(value || '').toLowerCase();
+  if (['healthy', 'ok', 'success', 'completed', 'ready'].includes(normalized)) return 'buy';
+  if (['warning', 'completed_with_warning', 'moderate', 'attention'].includes(normalized)) return 'warning';
+  if (['failed', 'error', 'high', 'out_of_sync'].includes(normalized)) return 'high';
+  return 'info';
 }
 
-function Card({ title, subtitle, extra, children }) {
+function TrainingNotice({ type = 'info', title, children }) {
   return (
-    <section style={shellCardStyle}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 14 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 22 }}>{title}</h2>
-          {subtitle ? <p style={{ margin: '6px 0 0', color: '#9ca3af' }}>{subtitle}</p> : null}
-        </div>
-        {extra}
-      </div>
-      {children}
-    </section>
+    <div className={`training-notice training-notice--${type}`}>
+      {title ? <strong>{title}</strong> : null}
+      <div className={title ? 'top-gap' : undefined}>{children}</div>
+    </div>
   );
 }
 
-function Notice({ type = 'info', title, children }) {
-  const palettes = {
-    info: { background: '#0f172a', border: '#1d4ed8', color: '#dbeafe' },
-    success: { background: '#052e16', border: '#16a34a', color: '#dcfce7' },
-    warning: { background: '#422006', border: '#d97706', color: '#fef3c7' },
-    error: { background: '#450a0a', border: '#dc2626', color: '#fee2e2' },
-  };
-  const palette = palettes[type] || palettes.info;
+function TrainingPanel({ title, subtitle, actions, children, scroll = false }) {
   return (
-    <div style={{ background: palette.background, color: palette.color, border: `1px solid ${palette.border}`, borderRadius: 12, padding: 14 }}>
-      {title ? <strong style={{ display: 'block', marginBottom: 6 }}>{title}</strong> : null}
-      <div>{children}</div>
+    <div className="training-panel">
+      <div className="training-panel__header">
+        <div>
+          <h3 className="training-panel__title">{title}</h3>
+          {subtitle ? <p className="training-panel__subtitle">{subtitle}</p> : null}
+        </div>
+        {actions ? <div className="button-row">{actions}</div> : null}
+      </div>
+      <div className={scroll ? 'training-list training-scroll' : 'training-list'}>{children}</div>
     </div>
   );
 }
 
 function WeightList({ weights }) {
   const entries = Object.entries(weights || {});
-  if (!entries.length) return <div style={{ color: '#9ca3af' }}>Sem pesos disponíveis.</div>;
+  if (!entries.length) {
+    return <div className="training-empty">Sem pesos disponíveis.</div>;
+  }
+
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
+    <div className="training-list">
       {entries.map(([key, value]) => (
-        <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-          <span style={{ textTransform: 'uppercase', color: '#9ca3af' }}>{key}</span>
+        <div key={key} className="training-kv">
+          <span>{String(key).toUpperCase()}</span>
           <strong>{formatNumber(value, 4)}</strong>
         </div>
       ))}
@@ -144,20 +112,33 @@ function WeightList({ weights }) {
 
 function PresetCard({ item, onApply, onActivateRuntime, applying, activating }) {
   return (
-    <div style={{ ...shellCardStyle, padding: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-        <strong>{String(item.title || item.regimeKey || '').replace(/_/g, ' ')}</strong>
-        <span style={{ color: item.isApplied ? '#34d399' : '#9ca3af', fontSize: 13 }}>{item.isApplied ? 'Preset salvo' : 'Disponível'}</span>
+    <div className="training-panel">
+      <div className="training-panel__header">
+        <div>
+          <h3 className="training-panel__title">{String(item.title || item.regimeKey || '').replace(/_/g, ' ')}</h3>
+          <p className="training-panel__subtitle">{item.description || 'Sem descrição.'}</p>
+        </div>
+        <Pill tone={item.isApplied ? 'buy' : 'neutral'}>{item.isApplied ? 'Preset salvo' : 'Disponível'}</Pill>
       </div>
-      <p style={{ color: '#9ca3af', margin: '8px 0 12px' }}>{item.description}</p>
-      <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 12 }}>
-        qualidade: {formatNumber(item.qualityScore, 4)} • drift: {formatNumber(item.driftScore, 4)} • intensidade: {formatNumber(item.intensity, 4)}
+      <div className="metric-grid">
+        <div className="list-item list-item--column">
+          <strong>Qualidade</strong>
+          <span>{formatNumber(item.qualityScore, 4)}</span>
+        </div>
+        <div className="list-item list-item--column">
+          <strong>Drift</strong>
+          <span>{formatNumber(item.driftScore, 4)}</span>
+        </div>
+        <div className="list-item list-item--column">
+          <strong>Intensidade</strong>
+          <span>{formatNumber(item.intensity, 4)}</span>
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button type="button" style={secondaryButtonStyle} onClick={() => onApply(item.regimeKey)}>
+      <div className="button-row">
+        <button type="button" className="button button--ghost" onClick={() => onApply(item.regimeKey)}>
           {applying ? 'Aplicando...' : 'Salvar preset'}
         </button>
-        <button type="button" style={primaryButtonStyle} onClick={() => onActivateRuntime(item.regimeKey)}>
+        <button type="button" className="button" onClick={() => onActivateRuntime(item.regimeKey)}>
           {activating ? 'Ativando...' : 'Ativar no runtime'}
         </button>
       </div>
@@ -167,11 +148,15 @@ function PresetCard({ item, onApply, onActivateRuntime, applying, activating }) 
 
 function TrainingLogRow({ item }) {
   return (
-    <div style={{ borderBottom: '1px solid #1f2937', paddingBottom: 10 }}>
-      <div><strong>{item.stepKey || 'etapa'}</strong> • {item.message || 'Sem mensagem'}</div>
-      <div style={{ color: '#9ca3af', fontSize: 13 }}>{formatDateTime(item.createdAt)} • nível: {translateStatus(item.level || item.status || 'info')}</div>
+    <div className="training-log-row">
+      <div className="decision-card__row">
+        <strong>{item.stepKey || 'etapa'}</strong>
+        <Pill tone={getStatusTone(item.level || item.status || 'info')}>{translateStatus(item.level || item.status || 'info')}</Pill>
+      </div>
+      <div className="muted top-gap">{item.message || 'Sem mensagem'}</div>
+      <div className="muted">{formatDateTime(item.createdAt)}</div>
       {item.payload ? (
-        <pre style={{ whiteSpace: 'pre-wrap', color: '#cbd5e1', fontSize: 12, marginTop: 8 }}>
+        <pre className="training-log-payload">
           {typeof item.payload === 'string' ? item.payload : JSON.stringify(item.payload, null, 2)}
         </pre>
       ) : null}
@@ -367,152 +352,259 @@ export default function TreinamentoPage() {
   };
 
   if (loading) {
-    return <div style={{ display: 'grid', gap: 16 }}><Card title="Treinamento" subtitle="Carregando governança e runtime da AI..." /></div>;
+    return (
+      <div className="training-page">
+        <Section title="Treinamento" subtitle="Carregando governança e runtime da AI...">
+          <div className="training-empty">Aguarde enquanto os dados do módulo são carregados.</div>
+        </Section>
+      </div>
+    );
   }
 
-  return (
-    <div style={{ display: 'grid', gap: 16 }}>
-      {error ? <Notice type="error" title="Falha">{error}</Notice> : null}
-      {notice ? <Notice type={notice.type} title={notice.title}>{notice.message}</Notice> : null}
+  const summaryNotice = summary?.message || summary?.notes || null;
 
-      <Card
+  return (
+    <div className="training-page">
+      {error ? <TrainingNotice type="error" title="Falha">{error}</TrainingNotice> : null}
+      {notice ? <TrainingNotice type={notice.type} title={notice.title}>{notice.message}</TrainingNotice> : null}
+      {summaryNotice ? <TrainingNotice type="info" title="Resumo do módulo">{summaryNotice}</TrainingNotice> : null}
+
+      <Section
         title="Treinamento assistido e runtime da AI"
         subtitle="Gerencie o regime ativo, acompanhe o runtime consumido pela AI e confira se pesos, drift e sincronização continuam coerentes com o mercado."
-        extra={<button type="button" style={secondaryButtonStyle} onClick={loadEverything}>Atualizar</button>}
+        actions={<button type="button" className="button button--ghost" onClick={loadEverything}>Atualizar</button>}
       >
-        <div style={sectionGridStyle}>
-          <div style={{ ...shellCardStyle, padding: 14 }}>
-            <SectionTitle>Resumo rápido</SectionTitle>
-            <div>Qualidade atual: <strong>{formatNumber(latestQuality?.qualityScore, 4)}</strong></div>
-            <div>Status da qualidade: <strong>{translateStatus(latestQuality?.qualityStatus)}</strong></div>
-            <div>Drift atual: <strong>{formatNumber(latestDrift?.driftScore, 4)}</strong></div>
-            <div>Status do drift: <strong>{translateStatus(latestDrift?.driftStatus)}</strong></div>
-            <div>Regime ativo em runtime: <strong>{currentRuntime?.currentRegime || '—'}</strong></div>
-            <div>Status do runtime: <strong>{translateStatus(currentRuntime?.runtimeStatus)}</strong></div>
-            <div>Última ação da AI: <strong>{currentRuntime?.lastDecisionAction || '—'}</strong></div>
-          </div>
+        <div className="grid three-columns">
+          <TrainingPanel title="Resumo rápido">
+            <div className="training-kv"><span>Qualidade atual</span><strong>{formatNumber(latestQuality?.qualityScore, 4)}</strong></div>
+            <div className="training-kv"><span>Status da qualidade</span><Pill tone={getStatusTone(latestQuality?.qualityStatus)}>{translateStatus(latestQuality?.qualityStatus)}</Pill></div>
+            <div className="training-kv"><span>Drift atual</span><strong>{formatNumber(latestDrift?.driftScore, 4)}</strong></div>
+            <div className="training-kv"><span>Status do drift</span><Pill tone={getStatusTone(latestDrift?.driftStatus)}>{translateStatus(latestDrift?.driftStatus)}</Pill></div>
+            <div className="training-kv"><span>Regime ativo</span><strong>{currentRuntime?.currentRegime || '—'}</strong></div>
+            <div className="training-kv"><span>Status do runtime</span><Pill tone={getStatusTone(currentRuntime?.runtimeStatus)}>{translateStatus(currentRuntime?.runtimeStatus)}</Pill></div>
+            <div className="training-kv"><span>Última ação da AI</span><strong>{currentRuntime?.lastDecisionAction || '—'}</strong></div>
+          </TrainingPanel>
 
-          <div style={{ ...shellCardStyle, padding: 14 }}>
-            <SectionTitle>Rodar treinamento assistido</SectionTitle>
-            <div style={{ display: 'grid', gap: 10 }}>
-              <label><div style={{ marginBottom: 6 }}>Label</div><input value={form.label} onChange={(e) => setForm((c) => ({ ...c, label: e.target.value }))} style={{ width: '100%' }} /></label>
-              <label><div style={{ marginBottom: 6 }}>Objetivo</div><input value={form.objective} onChange={(e) => setForm((c) => ({ ...c, objective: e.target.value }))} style={{ width: '100%' }} /></label>
-              <label><div style={{ marginBottom: 6 }}>Janela de avaliação (dias)</div><input type="number" value={form.windowDays} onChange={(e) => setForm((c) => ({ ...c, windowDays: e.target.value }))} style={{ width: '100%' }} /></label>
-              <label><div style={{ marginBottom: 6 }}>Escopo de símbolos (opcional)</div><input value={form.symbolScope} onChange={(e) => setForm((c) => ({ ...c, symbolScope: e.target.value }))} placeholder="BTCUSDT,ETHUSDT" style={{ width: '100%' }} /></label>
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={form.applySuggestedWeights} onChange={(e) => setForm((c) => ({ ...c, applySuggestedWeights: e.target.checked }))} />Aplicar pesos sugeridos automaticamente</label>
-              <button type="button" style={primaryButtonStyle} onClick={handleRunTraining}>{trainingLoading ? 'Executando...' : 'Rodar treinamento assistido'}</button>
+          <TrainingPanel title="Rodar treinamento assistido" subtitle="Use esta execução manual para revisar o comportamento antes de aplicar ajustes em runtime.">
+            <div className="grid two-columns">
+              <ConfigField label="Label">
+                <input value={form.label} onChange={(e) => setForm((c) => ({ ...c, label: e.target.value }))} />
+              </ConfigField>
+              <ConfigField label="Objetivo">
+                <input value={form.objective} onChange={(e) => setForm((c) => ({ ...c, objective: e.target.value }))} />
+              </ConfigField>
+              <ConfigField label="Janela de avaliação (dias)">
+                <input type="number" value={form.windowDays} onChange={(e) => setForm((c) => ({ ...c, windowDays: e.target.value }))} />
+              </ConfigField>
+              <ConfigField label="Escopo de símbolos" hint="Opcional. Ex.: BTCUSDT,ETHUSDT">
+                <input value={form.symbolScope} onChange={(e) => setForm((c) => ({ ...c, symbolScope: e.target.value }))} placeholder="BTCUSDT,ETHUSDT" />
+              </ConfigField>
             </div>
-          </div>
+            <label className="training-check">
+              <input
+                type="checkbox"
+                checked={form.applySuggestedWeights}
+                onChange={(e) => setForm((c) => ({ ...c, applySuggestedWeights: e.target.checked }))}
+              />
+              <span>Aplicar pesos sugeridos automaticamente ao terminar o treinamento.</span>
+            </label>
+            <div className="button-row">
+              <button type="button" className="button" onClick={handleRunTraining}>
+                {trainingLoading ? 'Executando...' : 'Rodar treinamento assistido'}
+              </button>
+            </div>
+          </TrainingPanel>
 
-          <div style={{ ...shellCardStyle, padding: 14 }}>
-            <SectionTitle>Configurações de adaptação</SectionTitle>
-            <div style={{ display: 'grid', gap: 10 }}>
-              <label><div style={{ marginBottom: 6 }}>Mínimo de qualidade para aplicar</div><input type="number" step="0.01" value={settingsForm.minQualityScoreForApply} onChange={(e) => setSettingsForm((c) => ({ ...c, minQualityScoreForApply: e.target.value }))} style={{ width: '100%' }} /></label>
-              <label><div style={{ marginBottom: 6 }}>Modo de auto apply</div><input value={settingsForm.autoApplyMode || ''} onChange={(e) => setSettingsForm((c) => ({ ...c, autoApplyMode: e.target.value }))} style={{ width: '100%' }} /></label>
-              <label><div style={{ marginBottom: 6 }}>Máxima mudança por run</div><input type="number" step="0.01" value={settingsForm.maxWeightShiftPerRun} onChange={(e) => setSettingsForm((c) => ({ ...c, maxWeightShiftPerRun: e.target.value }))} style={{ width: '100%' }} /></label>
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={Boolean(settingsForm.allowApplyWithWarning)} onChange={(e) => setSettingsForm((c) => ({ ...c, allowApplyWithWarning: e.target.checked }))} />Permitir aplicação com warning</label>
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={Boolean(settingsForm.adaptiveExpertsEnabled)} onChange={(e) => setSettingsForm((c) => ({ ...c, adaptiveExpertsEnabled: e.target.checked }))} />Reforçar experts automaticamente</label>
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={Boolean(settingsForm.adaptiveRegimePresetsEnabled)} onChange={(e) => setSettingsForm((c) => ({ ...c, adaptiveRegimePresetsEnabled: e.target.checked }))} />Atualizar presets por regime</label>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" style={secondaryButtonStyle} onClick={handleSaveSettings}>{savingSettings ? 'Salvando...' : 'Salvar guardrails'}</button>
-                <button type="button" style={secondaryButtonStyle} onClick={handleSyncRuntime}>{presetAction === 'runtime:sync' ? 'Sincronizando...' : 'Sincronizar runtime'}</button>
-              </div>
+          <TrainingPanel title="Configurações de adaptação" subtitle="Defina guardrails de qualidade e o quanto o treinamento pode mexer no runtime.">
+            <div className="grid two-columns">
+              <ConfigField label="Mínimo de qualidade para aplicar">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={settingsForm.minQualityScoreForApply}
+                  onChange={(e) => setSettingsForm((c) => ({ ...c, minQualityScoreForApply: e.target.value }))}
+                />
+              </ConfigField>
+              <ConfigField label="Modo de auto apply">
+                <input value={settingsForm.autoApplyMode || ''} onChange={(e) => setSettingsForm((c) => ({ ...c, autoApplyMode: e.target.value }))} />
+              </ConfigField>
+              <ConfigField label="Máxima mudança por run">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={settingsForm.maxWeightShiftPerRun}
+                  onChange={(e) => setSettingsForm((c) => ({ ...c, maxWeightShiftPerRun: e.target.value }))}
+                />
+              </ConfigField>
             </div>
-          </div>
+            <label className="training-check">
+              <input
+                type="checkbox"
+                checked={Boolean(settingsForm.allowApplyWithWarning)}
+                onChange={(e) => setSettingsForm((c) => ({ ...c, allowApplyWithWarning: e.target.checked }))}
+              />
+              <span>Permitir aplicação com warning.</span>
+            </label>
+            <label className="training-check">
+              <input
+                type="checkbox"
+                checked={Boolean(settingsForm.adaptiveExpertsEnabled)}
+                onChange={(e) => setSettingsForm((c) => ({ ...c, adaptiveExpertsEnabled: e.target.checked }))}
+              />
+              <span>Reforçar experts automaticamente.</span>
+            </label>
+            <label className="training-check">
+              <input
+                type="checkbox"
+                checked={Boolean(settingsForm.adaptiveRegimePresetsEnabled)}
+                onChange={(e) => setSettingsForm((c) => ({ ...c, adaptiveRegimePresetsEnabled: e.target.checked }))}
+              />
+              <span>Atualizar presets por regime.</span>
+            </label>
+            <div className="button-row">
+              <button type="button" className="button button--ghost" onClick={handleSaveSettings}>
+                {savingSettings ? 'Salvando...' : 'Salvar guardrails'}
+              </button>
+              <button type="button" className="button button--ghost" onClick={handleSyncRuntime}>
+                {presetAction === 'runtime:sync' ? 'Sincronizando...' : 'Sincronizar runtime'}
+              </button>
+            </div>
+          </TrainingPanel>
         </div>
-      </Card>
+      </Section>
 
-      <Card
+      <Section
         title="Runtime e pesos efetivos"
         subtitle="Veja o que está rodando agora na AI, compare com a configuração persistida e identifique rapidamente qualquer desvio de sincronização."
       >
-        <div style={sectionGridStyle}>
-          <div style={{ ...shellCardStyle, padding: 14 }}>
-            <SectionTitle>Estado do runtime</SectionTitle>
-            <div>Status: {translateStatus(currentRuntime?.runtimeStatus)}</div>
-            <div>Saúde da sincronização: {translateStatus(currentRuntime?.syncHealth)}</div>
-            <div>Última sincronização: {formatDateTime(currentRuntime?.lastRuntimeSyncAt)}</div>
-            <div>Último reporte do worker: {formatDateTime(currentRuntime?.workerReportedAt)}</div>
-            <div>Defasagem do worker: {currentRuntime?.workerLagSeconds != null ? `${formatNumber(currentRuntime?.workerLagSeconds, 0)}s` : '—'}</div>
-            <div>Worker: {currentRuntime?.workerName || '—'}</div>
-            <div>Versão ativa da config: {runtimePayload?.configVersion || '—'}</div>
-            <div>Config usada no sync: {currentRuntime?.configVersionAtSync || '—'}</div>
-            <div>Versão vista pelo worker: {currentRuntime?.workerConfigVersionSeen || '—'}</div>
-            <div>Runtime persistido em: {formatDateTime(runtimePayload?.runtimeUpdatedAt || currentRuntime?.runtimeUpdatedAt)}</div>
-            <div>Expert dominante: {currentRuntime?.dominantExpertKey || '—'}{currentRuntime?.dominantExpertScore != null ? ` • score ${formatNumber(currentRuntime?.dominantExpertScore, 4)}` : ''}</div>
-            <div style={{ color: '#9ca3af', marginTop: 8 }}>{currentRuntime?.notes || 'Sem observações recentes.'}</div>
-            {(currentRuntime?.syncIssues || []).length ? <div style={{ color: '#fbbf24', marginTop: 8 }}>Pendências: {(currentRuntime.syncIssues || []).join(' • ')}</div> : null}
-          </div>
-          <div style={{ ...shellCardStyle, padding: 14 }}>
-            <SectionTitle>Pesos efetivos em runtime</SectionTitle>
-            <WeightList weights={currentRuntime?.effectiveExpertWeights} />
-          </div>
-          <div style={{ ...shellCardStyle, padding: 14 }}>
-            <SectionTitle>Diferença vs. configuração</SectionTitle>
-            <div style={{ display: 'grid', gap: 8 }}>
-              {runtimeDiff.length ? runtimeDiff.map((item) => (
-                <div key={item.key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, fontSize: 14 }}>
-                  <div style={{ textTransform: 'uppercase', color: '#9ca3af' }}>{item.key}</div>
-                  <div>runtime: {formatNumber(item.runtime, 4)}</div>
-                  <div>config: {formatNumber(item.config, 4)}</div>
-                  <div style={{ color: item.delta === 0 ? '#9ca3af' : item.delta > 0 ? '#34d399' : '#f59e0b' }}>Δ {formatNumber(item.delta, 4)}</div>
-                </div>
-              )) : <div style={{ color: '#9ca3af' }}>Sem dados de comparação.</div>}
-            </div>
-          </div>
-        </div>
-      </Card>
+        <div className="grid three-columns">
+          <TrainingPanel title="Estado do runtime">
+            <div className="training-kv"><span>Status</span><Pill tone={getStatusTone(currentRuntime?.runtimeStatus)}>{translateStatus(currentRuntime?.runtimeStatus)}</Pill></div>
+            <div className="training-kv"><span>Saúde da sincronização</span><Pill tone={getStatusTone(currentRuntime?.syncHealth)}>{translateStatus(currentRuntime?.syncHealth)}</Pill></div>
+            <div className="training-kv"><span>Última sincronização</span><strong>{formatDateTime(currentRuntime?.lastRuntimeSyncAt)}</strong></div>
+            <div className="training-kv"><span>Último reporte do worker</span><strong>{formatDateTime(currentRuntime?.workerReportedAt)}</strong></div>
+            <div className="training-kv"><span>Defasagem do worker</span><strong>{currentRuntime?.workerLagSeconds != null ? `${formatNumber(currentRuntime?.workerLagSeconds, 0)}s` : '—'}</strong></div>
+            <div className="training-kv"><span>Worker</span><strong>{currentRuntime?.workerName || '—'}</strong></div>
+            <div className="training-kv"><span>Versão ativa da config</span><strong>{runtimePayload?.configVersion || '—'}</strong></div>
+            <div className="training-kv"><span>Config usada no sync</span><strong>{currentRuntime?.configVersionAtSync || '—'}</strong></div>
+            <div className="training-kv"><span>Versão vista pelo worker</span><strong>{currentRuntime?.workerConfigVersionSeen || '—'}</strong></div>
+            <div className="training-note">{currentRuntime?.notes || 'Sem observações recentes.'}</div>
+            {(currentRuntime?.syncIssues || []).length ? (
+              <div className="training-warning">Pendências: {(currentRuntime.syncIssues || []).join(' • ')}</div>
+            ) : null}
+          </TrainingPanel>
 
-      <Card
+          <TrainingPanel title="Pesos efetivos em runtime">
+            <WeightList weights={currentRuntime?.effectiveExpertWeights} />
+          </TrainingPanel>
+
+          <TrainingPanel title="Diferença vs. configuração" scroll>
+            {runtimeDiff.length ? (
+              <div className="training-diff-grid">
+                {runtimeDiff.map((item) => (
+                  <div key={item.key} className="training-diff-row">
+                    <div>{item.key}</div>
+                    <div>runtime: {formatNumber(item.runtime, 4)}</div>
+                    <div>config: {formatNumber(item.config, 4)}</div>
+                    <div className={item.delta === 0 ? 'muted' : item.delta > 0 ? 'training-success' : 'training-warning'}>
+                      Δ {formatNumber(item.delta, 4)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="training-empty">Sem dados de comparação.</div>
+            )}
+          </TrainingPanel>
+        </div>
+      </Section>
+
+      <Section
         title="Presets adaptativos por regime"
         subtitle="Salve presets para consolidar ajustes por regime e ative o runtime quando quiser colocar imediatamente a AI para operar com aquele contexto."
       >
-        <div style={{ ...sectionGridStyle, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
-          {(presetsPayload?.presets || []).map((item) => (
-            <PresetCard
-              key={item.regimeKey}
-              item={item}
-              onApply={handleApplyPreset}
-              onActivateRuntime={handleActivateRuntime}
-              applying={presetAction === `apply:${item.regimeKey}`}
-              activating={presetAction === `runtime:${item.regimeKey}`}
-            />
-          ))}
-        </div>
-      </Card>
+        {(presetsPayload?.presets || []).length ? (
+          <div className="training-preset-grid">
+            {(presetsPayload?.presets || []).map((item) => (
+              <PresetCard
+                key={item.regimeKey}
+                item={item}
+                onApply={handleApplyPreset}
+                onActivateRuntime={handleActivateRuntime}
+                applying={presetAction === `apply:${item.regimeKey}`}
+                activating={presetAction === `runtime:${item.regimeKey}`}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="training-empty">Nenhum preset adaptativo disponível.</div>
+        )}
+      </Section>
 
-      <Card
+      <Section
         title="Qualidade, drift e experts"
         subtitle="Acompanhe se o modelo continua saudável, quais experts estão contribuindo melhor e quando o regime atual começa a perder coerência."
       >
-        <div style={sectionGridStyle}>
-          <div style={{ ...shellCardStyle, padding: 14 }}>
-            <SectionTitle>Últimos relatórios de qualidade</SectionTitle>
-            <div style={{ display: 'grid', gap: 10 }}>{qualityReports.slice(0, 5).map((item, index) => <div key={item.id || index} style={{ borderBottom: '1px solid #1f2937', paddingBottom: 8 }}><div><strong>{formatNumber(item.qualityScore, 4)}</strong> • {translateStatus(item.qualityStatus)}</div><div style={{ color: '#9ca3af', fontSize: 13 }}>{formatDateTime(item.createdAt)}</div></div>)}</div>
-          </div>
-          <div style={{ ...shellCardStyle, padding: 14 }}>
-            <SectionTitle>Últimos relatórios de drift</SectionTitle>
-            <div style={{ display: 'grid', gap: 10 }}>{driftReports.slice(0, 5).map((item, index) => <div key={item.id || index} style={{ borderBottom: '1px solid #1f2937', paddingBottom: 8 }}><div><strong>{formatNumber(item.driftScore, 4)}</strong> • {translateStatus(item.driftStatus)}</div><div style={{ color: '#9ca3af', fontSize: 13 }}>{formatDateTime(item.createdAt)}</div></div>)}</div>
-          </div>
-          <div style={{ ...shellCardStyle, padding: 14 }}>
-            <SectionTitle>Experts mais fortes</SectionTitle>
-            <div style={{ display: 'grid', gap: 10 }}>{expertReports.slice(0, 7).map((item, index) => <div key={item.id || item.expertKey || index} style={{ borderBottom: '1px solid #1f2937', paddingBottom: 8 }}><div><strong>{item.expertKey || item.name || 'expert'}</strong></div><div style={{ color: '#9ca3af', fontSize: 13 }}>hit rate: {formatNumber(item.hitRate, 4)} • contribuição: {formatNumber(item.contributionScore, 4)} • peso sugerido: {formatNumber(item.suggestedWeight, 4)}</div></div>)}</div>
-          </div>
-        </div>
-      </Card>
+        <div className="grid three-columns">
+          <TrainingPanel title="Últimos relatórios de qualidade" scroll>
+            {qualityReports.slice(0, 8).length ? qualityReports.slice(0, 8).map((item, index) => (
+              <div key={item.id || index} className="list-item list-item--column">
+                <div className="decision-card__row">
+                  <strong>{formatNumber(item.qualityScore, 4)}</strong>
+                  <Pill tone={getStatusTone(item.qualityStatus)}>{translateStatus(item.qualityStatus)}</Pill>
+                </div>
+                <div className="muted">{formatDateTime(item.createdAt)}</div>
+              </div>
+            )) : <div className="training-empty">Nenhum relatório de qualidade disponível.</div>}
+          </TrainingPanel>
 
-      <Card title="Execuções recentes e logs" subtitle="Use esta área para entender o que foi treinado, quando rodou, qual status retornou e quais mensagens o pipeline gerou.">
-        <div style={sectionGridStyle}>
-          <div style={{ ...shellCardStyle, padding: 14 }}>
-            <SectionTitle>Execuções recentes</SectionTitle>
-            <div style={{ display: 'grid', gap: 10 }}>{runs.slice(0, 8).map((item) => <div key={item.id} style={{ borderBottom: '1px solid #1f2937', paddingBottom: 8 }}><div><strong>{item.label || `Execução #${item.id}`}</strong></div><div style={{ color: '#9ca3af', fontSize: 13 }}>{formatDateTime(item.createdAt)} • status: {translateStatus(item.status)}</div></div>)}</div>
-          </div>
-          <div style={{ ...shellCardStyle, padding: 14 }}>
-            <SectionTitle>Logs do treinamento</SectionTitle>
-            <div style={{ display: 'grid', gap: 10 }}>{logs.slice(0, 40).map((item, index) => <TrainingLogRow key={item.id || index} item={item} />)}</div>
-          </div>
+          <TrainingPanel title="Últimos relatórios de drift" scroll>
+            {driftReports.slice(0, 8).length ? driftReports.slice(0, 8).map((item, index) => (
+              <div key={item.id || index} className="list-item list-item--column">
+                <div className="decision-card__row">
+                  <strong>{formatNumber(item.driftScore, 4)}</strong>
+                  <Pill tone={getStatusTone(item.driftStatus)}>{translateStatus(item.driftStatus)}</Pill>
+                </div>
+                <div className="muted">{formatDateTime(item.createdAt)}</div>
+              </div>
+            )) : <div className="training-empty">Nenhum relatório de drift disponível.</div>}
+          </TrainingPanel>
+
+          <TrainingPanel title="Experts mais fortes" scroll>
+            {expertReports.slice(0, 10).length ? expertReports.slice(0, 10).map((item, index) => (
+              <div key={item.id || item.expertKey || index} className="list-item list-item--column">
+                <div className="decision-card__row">
+                  <strong>{item.expertKey || item.name || 'expert'}</strong>
+                  <Pill tone="info">peso {formatNumber(item.suggestedWeight, 4)}</Pill>
+                </div>
+                <div className="muted">hit rate: {formatNumber(item.hitRate, 4)} • contribuição: {formatNumber(item.contributionScore, 4)}</div>
+              </div>
+            )) : <div className="training-empty">Nenhum expert disponível.</div>}
+          </TrainingPanel>
         </div>
-      </Card>
+      </Section>
+
+      <Section title="Execuções recentes e logs" subtitle="Use esta área para entender o que foi treinado, quando rodou, qual status retornou e quais mensagens o pipeline gerou.">
+        <div className="grid two-columns">
+          <TrainingPanel title="Execuções recentes" scroll>
+            {runs.slice(0, 10).length ? runs.slice(0, 10).map((item) => (
+              <div key={item.id} className="list-item list-item--column">
+                <div className="decision-card__row">
+                  <strong>{item.label || `Execução #${item.id}`}</strong>
+                  <Pill tone={getStatusTone(item.status)}>{translateStatus(item.status)}</Pill>
+                </div>
+                <div className="muted">{formatDateTime(item.createdAt)}</div>
+              </div>
+            )) : <div className="training-empty">Nenhuma execução recente.</div>}
+          </TrainingPanel>
+
+          <TrainingPanel title="Logs do treinamento" scroll>
+            {logs.slice(0, 40).length ? logs.slice(0, 40).map((item, index) => (
+              <TrainingLogRow key={item.id || index} item={item} />
+            )) : <div className="training-empty">Nenhum log recente.</div>}
+          </TrainingPanel>
+        </div>
+      </Section>
     </div>
   );
 }
