@@ -132,6 +132,25 @@ function pickDateCandidate(record = {}) {
   );
 }
 
+function readOrderFinancialDisplay(order = {}) {
+  const preview = order?.payload?.executionPreview || {};
+  const actualPrice = Number(order?.price || 0);
+  const actualPnl = Number(order?.realizedPnl || 0);
+  const actualExecutedQuantity = Number(order?.executedQuantity || 0);
+  const previewPrice = Number(preview?.price || 0);
+  const previewPnl = Number(preview?.realizedPnl || preview?.pnl || 0);
+  const previewRequestedQuantity = Number(preview?.requestedQuantity || preview?.quantity || 0);
+  const previewRequestedNotional = Number(preview?.grossProceeds || preview?.notional || 0);
+  const hasActualExecution = actualExecutedQuantity > 0 || actualPrice > 0 || String(order?.status || '').toUpperCase() === 'FILLED';
+
+  return {
+    price: hasActualExecution ? actualPrice : (actualPrice > 0 ? actualPrice : previewPrice),
+    realizedPnl: hasActualExecution ? actualPnl : ((actualPnl !== 0 || actualPrice > 0) ? actualPnl : previewPnl),
+    requestedQuantity: Number(order?.requestedQuantity || 0) > 0 ? Number(order.requestedQuantity) : previewRequestedQuantity,
+    requestedNotional: Number(order?.requestedNotional || 0) > 0 ? Number(order.requestedNotional) : previewRequestedNotional,
+    hasFinancialDisplay: hasActualExecution || previewPrice > 0 || previewRequestedQuantity > 0 || previewRequestedNotional > 0 || previewPnl !== 0,
+  };
+}
 
 function buildSummaryList(items = [], emptyLabel = 'Sem detalhe adicional.') {
   if (!items.length) {
@@ -1098,10 +1117,7 @@ export default function DashboardPage({ ctx }) {
                   const orderReason = extractOrderReason(order);
                   const status = toText(traduzirStatusGenerico(order.status), 'Sem status');
                   const sideLabel = toText(traduzirAcaoDecisao(order.side), 'Sem ação');
-                  const orderMeta = joinMetaParts([
-                    formatOptionalDateTime(order.createdAt),
-                    status,
-                  ]);
+                  const orderFinancials = readOrderFinancialDisplay(order);
                   return (
                     <div key={`${toText(order.symbol, 'ordem')}-${index}`} className="alert-card">
                       <div className="alert-card__title-row">
@@ -1112,20 +1128,20 @@ export default function DashboardPage({ ctx }) {
                         </div>
                       </div>
                       {isMeaningful(formatOptionalDateTime(order.createdAt)) ? <p>{formatOptionalDateTime(order.createdAt)}</p> : null}
-                      {Number(order.executedQuantity || 0) > 0 || Number(order.price || 0) > 0 ? (
+                      {orderFinancials.hasFinancialDisplay && Number(orderFinancials.price || 0) > 0 ? (
                         <p>
-                          Preço: {formatMaybeMoney(order.price, baseCurrency)} • PnL:{' '}
-                          <span className={Number(order.realizedPnl || 0) >= 0 ? 'value-positive' : 'value-negative'}>
-                            {formatMaybeMoney(order.realizedPnl, baseCurrency)}
+                          Preço: {formatMaybeMoney(orderFinancials.price, baseCurrency)} • PnL:{' '}
+                          <span className={Number(orderFinancials.realizedPnl || 0) >= 0 ? 'value-positive' : 'value-negative'}>
+                            {formatMaybeMoney(orderFinancials.realizedPnl, baseCurrency)}
                           </span>
                         </p>
                       ) : isMeaningful(joinMetaParts([
-                        Number(order.requestedQuantity || 0) > 0 ? `Qtd solicitada: ${formatNumber(order.requestedQuantity, 6)}` : null,
-                        Number(order.requestedNotional || 0) > 0 ? `Notional: ${formatMaybeMoney(order.requestedNotional, baseCurrency)}` : null,
+                        Number(orderFinancials.requestedQuantity || 0) > 0 ? `Qtd solicitada: ${formatNumber(orderFinancials.requestedQuantity, 6)}` : null,
+                        Number(orderFinancials.requestedNotional || 0) > 0 ? `Notional: ${formatMaybeMoney(orderFinancials.requestedNotional, baseCurrency)}` : null,
                       ])) ? (
                         <p>{joinMetaParts([
-                          Number(order.requestedQuantity || 0) > 0 ? `Qtd solicitada: ${formatNumber(order.requestedQuantity, 6)}` : null,
-                          Number(order.requestedNotional || 0) > 0 ? `Notional: ${formatMaybeMoney(order.requestedNotional, baseCurrency)}` : null,
+                          Number(orderFinancials.requestedQuantity || 0) > 0 ? `Qtd solicitada: ${formatNumber(orderFinancials.requestedQuantity, 6)}` : null,
+                          Number(orderFinancials.requestedNotional || 0) > 0 ? `Notional: ${formatMaybeMoney(orderFinancials.requestedNotional, baseCurrency)}` : null,
                         ])}</p>
                       ) : (
                         <p>Sem execução financeira.</p>
