@@ -130,6 +130,10 @@ function getIntervalConfig(intervalValue) {
   );
 }
 
+function getIntervalLabel(intervalValue) {
+  return getIntervalConfig(intervalValue)?.label || intervalValue || DEFAULT_INTERVAL;
+}
+
 function readCloseValues(candles = []) {
   return safeArray(candles)
     .map((item) => safeNumber(item?.close ?? item?.[4], Number.NaN))
@@ -192,6 +196,7 @@ export default function MercadoPage({ ctx = {} }) {
   const [error, setError] = useState('');
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [modalState, setModalState] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const favoritesHydratedRef = useRef(false);
   const lastPersistedFavoritesRef = useRef(JSON.stringify(uniqueSymbols(stored?.favorites)));
@@ -311,6 +316,18 @@ export default function MercadoPage({ ctx = {} }) {
   }, [configSymbols, ctx, favorites]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const timer = window.setInterval(() => {
+      setRefreshTick((current) => current + 1);
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadUniverse() {
@@ -349,7 +366,10 @@ export default function MercadoPage({ ctx = {} }) {
   }, [quoteAsset]);
 
   const cardSymbols = useMemo(
-    () => uniqueSymbols([...favorites, ...selectedSymbols]),
+    () =>
+      uniqueSymbols([...favorites, ...selectedSymbols]).sort((left, right) =>
+        left.localeCompare(right, 'pt-BR', { sensitivity: 'base' }),
+      ),
     [favorites, selectedSymbols],
   );
 
@@ -407,7 +427,7 @@ export default function MercadoPage({ ctx = {} }) {
     return () => {
       cancelled = true;
     };
-  }, [cardSymbols, intervalConfig.apiInterval, intervalConfig.limit]);
+  }, [cardSymbols, intervalConfig.apiInterval, intervalConfig.limit, refreshTick]);
 
   const filteredSymbols = useMemo(() => {
     const term = symbolSearch.trim().toUpperCase();
@@ -564,7 +584,7 @@ export default function MercadoPage({ ctx = {} }) {
           </label>
 
           <label className="field">
-            <span className="field__label">Intervalo do mini gráfico</span>
+            <span className="field__label">Intervalo do gráfico</span>
             <select value={interval} onChange={(event) => setInterval(event.target.value)}>
               {INTERVAL_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -774,7 +794,7 @@ export default function MercadoPage({ ctx = {} }) {
                   </div>
 
                   <div className="market-mini-stat-card market-mini-stat-card--compact">
-                    <span className="market-mini-stat-card__label">Variação no período</span>
+                    <span className="market-mini-stat-card__label">{`Variação de ${intervalLabel}`}</span>
                     <strong
                       className={`market-mini-stat-card__value ${
                         item.positive ? 'text-positive' : 'text-negative'
