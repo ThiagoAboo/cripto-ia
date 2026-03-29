@@ -1141,6 +1141,36 @@ button:focus-visible,
   overflow-wrap: anywhere;
 }
 
+.market-mini-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.market-mini-stat-card {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.market-mini-stat-card__label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.market-mini-stat-card__value {
+  display: block;
+  font-size: 0.98rem;
+  line-height: 1.28;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
 .positive {
   color: var(--success);
 }
