@@ -254,11 +254,7 @@ export default function MercadoPage({ ctx = {} }) {
         setSymbols(nextItems);
         setSelectedSymbols((current) => {
           const kept = uniqueSymbols(current.filter((symbol) => availableSymbols.has(symbol)));
-          if (kept.length) return kept;
-          const seeded = nextItems.slice(0, 8).map((item) => item.symbol);
-          return uniqueSymbols([...favorites, ...configSymbols, ...seeded]).filter((symbol) =>
-            availableSymbols.has(symbol),
-          );
+          return kept;
         });
       } catch (requestError) {
         if (!cancelled) {
