@@ -2,18 +2,23 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Section from '../components/Section';
 import Pill from '../components/Pill';
 import SparklineChart from '../components/SparklineChart';
+import OperacoesPage from './OperacoesPage';
+import ExecucaoPage from './ExecucaoPage';
+import SocialPage from './SocialPage';
 import { getApiBaseUrl } from '../lib/api';
 import { formatMoney, formatNumber, formatPercent } from '../lib/format';
-import { signedClassName } from '../lib/ui';
 
-const STORAGE_KEY = 'criptoia.mercado.v3';
-const MAX_SELECTED = 6;
-const MAX_FAVORITES = 20;
+const STORAGE_KEY = 'criptoia.mercado.v4';
 const DEFAULT_QUOTE = 'USDT';
 const DEFAULT_INTERVAL = '5m';
 const DEFAULT_LIMIT = 48;
 const INTERVAL_OPTIONS = ['1m', '5m', '15m', '1h', '4h'];
 const QUOTE_OPTIONS = ['USDT', 'BRL', 'BTC', 'ETH', 'BNB'];
+const MODAL_COMPONENTS = {
+  operacoes: OperacoesPage,
+  execucao: ExecucaoPage,
+  social: SocialPage,
+};
 
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
@@ -24,21 +29,18 @@ function safeNumber(value, fallback = 0) {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-function uniqueSymbols(values = [], max = MAX_FAVORITES) {
+function uniqueSymbols(values = []) {
   return Array.from(
     new Set(
       safeArray(values)
         .map((item) => String(item || '').trim().toUpperCase())
         .filter(Boolean),
     ),
-  ).slice(0, max);
+  );
 }
 
 function loadStoredState() {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
+  if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : null;
@@ -48,14 +50,11 @@ function loadStoredState() {
 }
 
 function persistState(nextState) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
+  if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
   } catch (_error) {
-    // ignore localStorage errors
+    // ignore local storage failures
   }
 }
 
@@ -96,8 +95,23 @@ function buildPresetPayload(name, state) {
 
 function readChartValues(candles = []) {
   return safeArray(candles)
-    .map((item) => safeNumber(item.close ?? item[4], NaN))
+    .map((item) => safeNumber(item.close ?? item[4], Number.NaN))
     .filter((value) => Number.isFinite(value));
+}
+
+function cloneConfig(value) {
+  try {
+    return JSON.parse(JSON.stringify(value || {}));
+  } catch (_error) {
+    return {};
+  }
+}
+
+function buildModalTitle(page, symbol) {
+  if (page === 'operacoes') return `Operações · ${symbol}`;
+  if (page === 'execucao') return `Execução · ${symbol}`;
+  if (page === 'social') return `Social · ${symbol}`;
+  return symbol;
 }
 
 export default function MercadoPage({ ctx = {} }) {
@@ -105,20 +119,25 @@ export default function MercadoPage({ ctx = {} }) {
   const [quoteAsset, setQuoteAsset] = useState(stored?.quoteAsset || DEFAULT_QUOTE);
   const [interval, setInterval] = useState(stored?.interval || DEFAULT_INTERVAL);
   const [symbolSearch, setSymbolSearch] = useState('');
-  const [selectedSymbols, setSelectedSymbols] = useState(uniqueSymbols(stored?.selectedSymbols, MAX_SELECTED));
-  const [favorites, setFavorites] = useState(uniqueSymbols(stored?.favorites, MAX_FAVORITES));
+  const [selectedSymbols, setSelectedSymbols] = useState(uniqueSymbols(stored?.selectedSymbols));
+  const [favorites, setFavorites] = useState(uniqueSymbols(stored?.favorites));
   const [presets, setPresets] = useState(safeArray(stored?.presets));
   const [symbols, setSymbols] = useState([]);
   const [tickersBySymbol, setTickersBySymbol] = useState({});
   const [candlesBySymbol, setCandlesBySymbol] = useState({});
   const [loading, setLoading] = useState({ universe: false, cards: false, preferences: false });
   const [error, setError] = useState('');
+  const [selectorOpen, setSelectorOpen] = useState(false);
+  const [modalState, setModalState] = useState(null);
 
   const favoritesHydratedRef = useRef(false);
-  const lastSavedFavoritesRef = useRef(JSON.stringify(uniqueSymbols(stored?.favorites, MAX_FAVORITES)));
+  const lastPersistedFavoritesRef = useRef(JSON.stringify(uniqueSymbols(stored?.favorites)));
 
   const baseCurrency = ctx.baseCurrency || 'USDT';
-  const goToPage = ctx.goToPage || (() => {});
+  const configSymbols = useMemo(
+    () => uniqueSymbols(ctx?.draftConfig?.trading?.symbols),
+    [ctx?.draftConfig?.trading?.symbols],
+  );
 
   useEffect(() => {
     persistState({
@@ -128,21 +147,27 @@ export default function MercadoPage({ ctx = {} }) {
       favorites,
       presets,
     });
-  }, [quoteAsset, interval, selectedSymbols, favorites, presets]);
+  }, [favorites, interval, presets, quoteAsset, selectedSymbols]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadStoredFavorites() {
+    async function hydrateFavorites() {
       setLoading((current) => ({ ...current, preferences: true }));
       try {
         const payload = await requestJson('/api/market/preferences');
         if (cancelled) return;
-        const backendFavorites = uniqueSymbols(payload?.favorites, MAX_FAVORITES);
-        lastSavedFavoritesRef.current = JSON.stringify(backendFavorites);
-        setFavorites((current) => uniqueSymbols([...backendFavorites, ...current], MAX_FAVORITES));
+        const backendFavorites = uniqueSymbols(payload?.favorites);
+        const merged = uniqueSymbols([...backendFavorites, ...configSymbols, ...favorites]);
+        lastPersistedFavoritesRef.current = JSON.stringify(backendFavorites);
+        setFavorites(merged);
+        setSelectedSymbols((current) => uniqueSymbols([...merged, ...current]));
       } catch (_error) {
-        // keep local fallback silently
+        if (!cancelled) {
+          const merged = uniqueSymbols([...configSymbols, ...favorites]);
+          setFavorites(merged);
+          setSelectedSymbols((current) => uniqueSymbols([...merged, ...current]));
+        }
       } finally {
         if (!cancelled) {
           favoritesHydratedRef.current = true;
@@ -151,19 +176,28 @@ export default function MercadoPage({ ctx = {} }) {
       }
     }
 
-    loadStoredFavorites();
+    hydrateFavorites();
     return () => {
       cancelled = true;
     };
   }, []);
 
   useEffect(() => {
-    if (!favoritesHydratedRef.current) {
-      return undefined;
-    }
+    if (!favoritesHydratedRef.current || !configSymbols.length) return;
+    setFavorites((current) => uniqueSymbols([...configSymbols, ...current]));
+  }, [configSymbols]);
 
-    const serialized = JSON.stringify(uniqueSymbols(favorites, MAX_FAVORITES));
-    if (serialized === lastSavedFavoritesRef.current) {
+  useEffect(() => {
+    if (!favoritesHydratedRef.current) return undefined;
+
+    const normalizedFavorites = uniqueSymbols(favorites);
+    const serializedFavorites = JSON.stringify(normalizedFavorites);
+    const serializedConfigSymbols = JSON.stringify(uniqueSymbols(configSymbols));
+
+    if (
+      serializedFavorites === lastPersistedFavoritesRef.current &&
+      serializedFavorites === serializedConfigSymbols
+    ) {
       return undefined;
     }
 
@@ -171,30 +205,38 @@ export default function MercadoPage({ ctx = {} }) {
     const timer = window.setTimeout(async () => {
       setLoading((current) => ({ ...current, preferences: true }));
       try {
-        const payload = await requestJson('/api/market/preferences', {
+        await requestJson('/api/market/preferences', {
           method: 'PUT',
-          body: JSON.stringify({ favorites: uniqueSymbols(favorites, MAX_FAVORITES) }),
+          body: JSON.stringify({ favorites: normalizedFavorites }),
         });
-        if (cancelled) return;
-        const normalizedFavorites = uniqueSymbols(payload?.favorites, MAX_FAVORITES);
-        lastSavedFavoritesRef.current = JSON.stringify(normalizedFavorites);
-        setFavorites(normalizedFavorites);
+
+        const configPayload = await requestJson('/api/config');
+        const currentConfig = cloneConfig(configPayload?.config || configPayload || {});
+        currentConfig.trading = currentConfig.trading || {};
+        currentConfig.trading.symbols = normalizedFavorites;
+        await requestJson('/api/config', {
+          method: 'PUT',
+          body: JSON.stringify(currentConfig),
+        });
+
+        lastPersistedFavoritesRef.current = serializedFavorites;
+        ctx.handleSymbolsChange?.(normalizedFavorites.join(', '));
       } catch (requestError) {
         if (!cancelled) {
-          setError(requestError.message || 'Falha ao salvar favoritos de mercado.');
+          setError(requestError.message || 'Falha ao sincronizar favoritos com Símbolos.');
         }
       } finally {
         if (!cancelled) {
           setLoading((current) => ({ ...current, preferences: false }));
         }
       }
-    }, 350);
+    }, 300);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [favorites]);
+  }, [configSymbols, ctx, favorites]);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,18 +245,21 @@ export default function MercadoPage({ ctx = {} }) {
       setLoading((current) => ({ ...current, universe: true }));
       setError('');
       try {
-        const payload = await requestJson(`/api/market/symbols?quoteAsset=${encodeURIComponent(quoteAsset)}`);
+        const payload = await requestJson(
+          `/api/market/symbols?quoteAsset=${encodeURIComponent(quoteAsset)}`,
+        );
         if (cancelled) return;
         const nextItems = safeArray(payload.items);
-        setSymbols(nextItems);
         const availableSymbols = new Set(nextItems.map((item) => item.symbol));
+        setSymbols(nextItems);
         setSelectedSymbols((current) => {
-          const filtered = uniqueSymbols(current.filter((symbol) => availableSymbols.has(symbol)), MAX_SELECTED);
-          if (filtered.length) return filtered;
-          const seeded = nextItems.slice(0, 4).map((item) => item.symbol);
-          return uniqueSymbols(seeded, MAX_SELECTED);
+          const kept = uniqueSymbols(current.filter((symbol) => availableSymbols.has(symbol)));
+          if (kept.length) return kept;
+          const seeded = nextItems.slice(0, 8).map((item) => item.symbol);
+          return uniqueSymbols([...favorites, ...configSymbols, ...seeded]).filter((symbol) =>
+            availableSymbols.has(symbol),
+          );
         });
-        setFavorites((current) => uniqueSymbols(current.filter((symbol) => availableSymbols.has(symbol)), MAX_FAVORITES));
       } catch (requestError) {
         if (!cancelled) {
           setError(requestError.message || 'Falha ao carregar os pares disponíveis.');
@@ -230,13 +275,18 @@ export default function MercadoPage({ ctx = {} }) {
     return () => {
       cancelled = true;
     };
-  }, [quoteAsset]);
+  }, [configSymbols, favorites, quoteAsset]);
+
+  const cardSymbols = useMemo(
+    () => uniqueSymbols([...favorites, ...selectedSymbols]),
+    [favorites, selectedSymbols],
+  );
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadCards() {
-      if (!selectedSymbols.length) {
+      if (!cardSymbols.length) {
         setTickersBySymbol({});
         setCandlesBySymbol({});
         return;
@@ -246,11 +296,10 @@ export default function MercadoPage({ ctx = {} }) {
       setError('');
       try {
         const tickerPayload = await requestJson(
-          `/api/market/tickers?symbols=${encodeURIComponent(selectedSymbols.join(','))}`,
+          `/api/market/tickers?symbols=${encodeURIComponent(cardSymbols.join(','))}`,
         );
-
         const candlePayloads = await Promise.all(
-          selectedSymbols.map(async (symbol) => {
+          cardSymbols.map(async (symbol) => {
             const payload = await requestJson(
               `/api/market/candles/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}&limit=${DEFAULT_LIMIT}`,
             );
@@ -282,17 +331,20 @@ export default function MercadoPage({ ctx = {} }) {
     return () => {
       cancelled = true;
     };
-  }, [interval, selectedSymbols]);
+  }, [cardSymbols, interval]);
 
   const filteredSymbols = useMemo(() => {
     const term = symbolSearch.trim().toUpperCase();
     if (!term) return symbols;
-    return symbols.filter((item) => item.symbol.includes(term) || String(item.baseAsset || '').includes(term));
+    return symbols.filter(
+      (item) =>
+        item.symbol.includes(term) || String(item.baseAsset || '').toUpperCase().includes(term),
+    );
   }, [symbolSearch, symbols]);
 
   const selectedRows = useMemo(
     () =>
-      selectedSymbols.map((symbol) => {
+      cardSymbols.map((symbol) => {
         const ticker = tickersBySymbol[symbol] || null;
         const candles = safeArray(candlesBySymbol[symbol]);
         const values = readChartValues(candles);
@@ -306,199 +358,257 @@ export default function MercadoPage({ ctx = {} }) {
           changePct,
           positive: changePct >= 0,
           isFavorite: favorites.includes(symbol),
+          quoteCurrency: symbol.endsWith('USDT')
+            ? 'USDT'
+            : symbol.endsWith('BRL')
+              ? 'BRL'
+              : symbol.endsWith('BTC')
+                ? 'BTC'
+                : symbol.endsWith('ETH')
+                  ? 'ETH'
+                  : symbol.endsWith('BNB')
+                    ? 'BNB'
+                    : quoteAsset || baseCurrency,
         };
       }),
-    [candlesBySymbol, favorites, selectedSymbols, tickersBySymbol],
+    [baseCurrency, candlesBySymbol, cardSymbols, favorites, quoteAsset, tickersBySymbol],
   );
+
+  const modalCtx = useMemo(() => {
+    if (!modalState) return null;
+    const localFilters = {
+      ...(ctx.pageFilters || {}),
+      [modalState.page]: {
+        symbol: modalState.symbol,
+        origin: 'mercado-modal',
+        createdAt: new Date().toISOString(),
+      },
+    };
+
+    return {
+      ...ctx,
+      pageFilters: localFilters,
+      clearPageFilter: (page) => {
+        if (page === modalState.page) {
+          setModalState(null);
+          return;
+        }
+        ctx.clearPageFilter?.(page);
+      },
+    };
+  }, [ctx, modalState]);
+
+  const ModalPage = modalState ? MODAL_COMPONENTS[modalState.page] : null;
 
   function toggleFavorite(symbol) {
     setFavorites((current) =>
       current.includes(symbol)
         ? current.filter((item) => item !== symbol)
-        : uniqueSymbols([symbol, ...current], MAX_FAVORITES),
+        : uniqueSymbols([symbol, ...current]),
     );
   }
 
   function toggleSelectedSymbol(symbol) {
-    setSelectedSymbols((current) => {
-      if (current.includes(symbol)) {
-        return current.filter((item) => item !== symbol);
-      }
-
-      if (current.length >= MAX_SELECTED) {
-        return current;
-      }
-
-      return [...current, symbol];
-    });
+    setSelectedSymbols((current) =>
+      current.includes(symbol)
+        ? current.filter((item) => item !== symbol)
+        : uniqueSymbols([symbol, ...current]),
+    );
   }
 
   function applyPreset(preset) {
     setQuoteAsset(preset.quoteAsset || DEFAULT_QUOTE);
     setInterval(preset.interval || DEFAULT_INTERVAL);
-    setSelectedSymbols(uniqueSymbols(preset.selectedSymbols, MAX_SELECTED));
-    setFavorites(uniqueSymbols(preset.favorites, MAX_FAVORITES));
+    setSelectedSymbols(uniqueSymbols(preset.selectedSymbols));
+    setFavorites(uniqueSymbols(preset.favorites));
   }
 
   function saveCurrentPreset() {
     const name = window.prompt('Nome do preset de mercado:', `Mercado ${quoteAsset} ${interval}`);
     if (!name) return;
-    setPresets((current) => [
-      buildPresetPayload(name, { quoteAsset, interval, selectedSymbols, favorites }),
-      ...current,
-    ].slice(0, 8));
+    setPresets((current) =>
+      [
+        buildPresetPayload(name, { quoteAsset, interval, selectedSymbols, favorites }),
+        ...current,
+      ].slice(0, 8),
+    );
   }
 
   function removePreset(presetId) {
     setPresets((current) => current.filter((item) => item.id !== presetId));
   }
 
-  function openFilteredPage(page, symbol) {
-    goToPage(page, {
-      symbol,
-      origin: 'mercado',
-      createdAt: new Date().toISOString(),
-    });
+  function openModal(page, symbol) {
+    setModalState({ page, symbol });
   }
 
   return (
-    <div className="page-stack mercado-page-v2">
+    <>
       <Section
-        title="Radar de mercado"
-        subtitle="Selecione a base de conversão, monte a lista de moedas com filtro interno e acompanhe os cards com mini gráfico e atalhos contextuais."
+        title="Mercado"
+        description="Acompanhe pares, mantenha favoritos sincronizados com Símbolos e abra análises filtradas sem sair desta tela."
       >
-        <div className="market-toolbar">
-          <label className="field field--compact">
-            <span>Base de conversão</span>
-            <select value={quoteAsset} onChange={(event) => setQuoteAsset(event.target.value)}>
-              {QUOTE_OPTIONS.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div style={{ display: 'grid', gap: 16 }}>
+          <div
+            style={{
+              display: 'grid',
+              gap: 12,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              alignItems: 'end',
+            }}
+          >
+            <label>
+              <div style={{ marginBottom: 6, fontWeight: 600 }}>Base de conversão</div>
+              <select value={quoteAsset} onChange={(event) => setQuoteAsset(event.target.value)}>
+                {QUOTE_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label className="field field--compact">
-            <span>Intervalo do mini gráfico</span>
-            <select value={interval} onChange={(event) => setInterval(event.target.value)}>
-              {INTERVAL_OPTIONS.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label>
+              <div style={{ marginBottom: 6, fontWeight: 600 }}>Intervalo do mini gráfico</div>
+              <select value={interval} onChange={(event) => setInterval(event.target.value)}>
+                {INTERVAL_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <div className="market-toolbar__badges">
-            <Pill tone={loading.universe ? 'warning' : 'info'}>
-              {loading.universe ? 'Atualizando universo…' : `Pares ${quoteAsset}: ${symbols.length}`}
-            </Pill>
-            <Pill tone={loading.cards ? 'warning' : 'success'}>
-              {loading.cards ? 'Atualizando cards…' : `Selecionados: ${selectedSymbols.length}`}
-            </Pill>
-            <Pill tone={loading.preferences ? 'warning' : 'success'}>
-              {loading.preferences ? 'Salvando favoritos…' : 'Favoritos sincronizados'}
-            </Pill>
-          </div>
-        </div>
-
-        <div className="market-select-grid">
-          <div className="market-select-card">
-            <div className="market-selector-toolbar">
-              <div>
-                <span>Pares disponíveis na Binance</span>
-                <small>Selecione até {MAX_SELECTED} pares para acompanhar.</small>
-              </div>
+            <label>
+              <div style={{ marginBottom: 6, fontWeight: 600 }}>Filtrar lista de pares</div>
               <input
-                className="market-selector-search"
                 value={symbolSearch}
                 onChange={(event) => setSymbolSearch(event.target.value)}
-                placeholder={`Filtrar pares ${quoteAsset}`}
+                placeholder={`Ex.: BTC${quoteAsset}`}
               />
-            </div>
-
-            <div className="market-selector-list" role="listbox" aria-multiselectable="true" aria-label="Pares disponíveis na Binance">
-              {filteredSymbols.length ? (
-                filteredSymbols.map((item) => {
-                  const isSelected = selectedSymbols.includes(item.symbol);
-                  return (
-                    <label
-                      key={item.symbol}
-                      className={`market-selector-option ${isSelected ? 'is-selected' : ''}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleSelectedSymbol(item.symbol)}
-                        disabled={!isSelected && selectedSymbols.length >= MAX_SELECTED}
-                      />
-                      <span className="market-selector-option__main">
-                        <strong>{item.symbol}</strong>
-                        <small>{item.baseAsset || item.symbol.replace(quoteAsset, '')}</small>
-                      </span>
-                      {favorites.includes(item.symbol) ? (
-                        <span className="market-selector-option__meta">★ favorito</span>
-                      ) : null}
-                    </label>
-                  );
-                })
-              ) : (
-                <div className="empty-state compact">Nenhum par encontrado para o filtro informado.</div>
-              )}
-            </div>
-            <small>
-              {selectedSymbols.length === MAX_SELECTED
-                ? 'Limite de pares atingido. Desmarque um item para adicionar outro.'
-                : `Base ativa: ${quoteAsset}.`}
-            </small>
+            </label>
           </div>
 
-          <div className="market-side-panel">
-            <div className="market-panel-card">
-              <div className="market-panel-card__header">
-                <strong>Favoritos</strong>
-                <button type="button" className="button button--ghost button--small" onClick={saveCurrentPreset}>
-                  Salvar preset
-                </button>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            <Pill tone="info">Pares {quoteAsset}: {symbols.length}</Pill>
+            <Pill tone="neutral">Selecionados: {selectedSymbols.length}</Pill>
+            <Pill tone="warning">Favoritos: {favorites.length}</Pill>
+            {loading.preferences ? <Pill tone="info">Sincronizando favoritos…</Pill> : null}
+            {loading.cards ? <Pill tone="info">Atualizando cards…</Pill> : null}
+          </div>
+
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="button" onClick={() => setSelectorOpen((current) => !current)}>
+                Pares disponíveis na Binance
+              </button>
+              <button type="button" className="button button--ghost" onClick={saveCurrentPreset}>
+                Salvar preset
+              </button>
+            </div>
+
+            {selectorOpen ? (
+              <div
+                style={{
+                  marginTop: 12,
+                  border: '1px solid rgba(148, 163, 184, 0.25)',
+                  borderRadius: 16,
+                  padding: 12,
+                  background: 'rgba(15, 23, 42, 0.94)',
+                  maxHeight: 360,
+                  overflow: 'auto',
+                }}
+              >
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {filteredSymbols.length ? (
+                    filteredSymbols.map((item) => {
+                      const checked = selectedSymbols.includes(item.symbol);
+                      return (
+                        <label
+                          key={item.symbol}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 12,
+                            padding: '8px 10px',
+                            borderRadius: 12,
+                            background: checked ? 'rgba(59, 130, 246, 0.14)' : 'rgba(15, 23, 42, 0.35)',
+                          }}
+                        >
+                          <span style={{ display: 'grid', gap: 2 }}>
+                            <strong>{item.symbol}</strong>
+                            <span style={{ opacity: 0.72, fontSize: 13 }}>
+                              {item.baseAsset || item.symbol.replace(quoteAsset, '')}
+                            </span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleSelectedSymbol(item.symbol)}
+                          />
+                        </label>
+                      );
+                    })
+                  ) : (
+                    <div style={{ opacity: 0.75 }}>Nenhum par encontrado para o filtro informado.</div>
+                  )}
+                </div>
               </div>
+            ) : null}
+          </div>
+
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div>
+              <div style={{ marginBottom: 8, fontWeight: 700 }}>Favoritos</div>
               {favorites.length ? (
-                <div className="tag-list">
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {favorites.map((symbol) => (
                     <button
                       key={symbol}
                       type="button"
-                      className="tag tag--button"
-                      onClick={() => setSelectedSymbols((current) => uniqueSymbols([symbol, ...current], MAX_SELECTED))}
+                      className="button button--ghost"
+                      onClick={() => setSelectedSymbols((current) => uniqueSymbols([symbol, ...current]))}
                     >
                       {symbol}
                     </button>
                   ))}
                 </div>
               ) : (
-                <p className="empty-note">Marque estrelas nos cards para manter uma watchlist rápida e persistida no banco.</p>
+                <div style={{ opacity: 0.75 }}>
+                  Marque a estrela amarela nos cards para sincronizar Favoritos e Símbolos.
+                </div>
               )}
             </div>
 
-            <div className="market-panel-card">
-              <div className="market-panel-card__header">
-                <strong>Presets rápidos</strong>
-              </div>
+            <div>
+              <div style={{ marginBottom: 8, fontWeight: 700 }}>Presets rápidos</div>
               {presets.length ? (
-                <div className="preset-list">
+                <div style={{ display: 'grid', gap: 10 }}>
                   {presets.map((preset) => (
-                    <div key={preset.id} className="preset-item">
-                      <div>
+                    <div
+                      key={preset.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        alignItems: 'center',
+                        border: '1px solid rgba(148, 163, 184, 0.16)',
+                        borderRadius: 14,
+                        padding: '10px 12px',
+                      }}
+                    >
+                      <div style={{ display: 'grid', gap: 2 }}>
                         <strong>{preset.name}</strong>
-                        <small>
-                          {preset.quoteAsset} · {preset.interval} · {safeArray(preset.selectedSymbols).length} pares
-                        </small>
+                        <span style={{ opacity: 0.72, fontSize: 13 }}>
+                          {preset.quoteAsset} · {preset.interval} · {uniqueSymbols(preset.selectedSymbols).length} pares
+                        </span>
                       </div>
-                      <div className="preset-item__actions">
-                        <button type="button" className="button button--ghost button--small" onClick={() => applyPreset(preset)}>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button type="button" className="button button--ghost" onClick={() => applyPreset(preset)}>
                           Aplicar
                         </button>
-                        <button type="button" className="button button--ghost button--small" onClick={() => removePreset(preset.id)}>
+                        <button type="button" className="button button--ghost" onClick={() => removePreset(preset.id)}>
                           Remover
                         </button>
                       </div>
@@ -506,77 +616,119 @@ export default function MercadoPage({ ctx = {} }) {
                   ))}
                 </div>
               ) : (
-                <p className="empty-note">Salve presets para trocar entre listas como swing, scalp ou moedas favoritas.</p>
+                <div style={{ opacity: 0.75 }}>
+                  Salve presets para alternar entre listas de acompanhamento sem perder os favoritos.
+                </div>
               )}
             </div>
           </div>
-        </div>
 
-        {error ? <div className="callout callout--danger">{error}</div> : null}
+          {error ? (
+            <div className="callout callout--danger" style={{ marginTop: 4 }}>
+              {error}
+            </div>
+          ) : null}
+        </div>
       </Section>
 
-      <Section
-        title="Cards de mercado"
-        subtitle="Os cards abaixo mostram preço, variação 24h, volume, mini gráfico e atalhos com filtro direto para outras telas do painel."
-      >
+      <Section title="Cards de mercado" description="Favoritos continuam visíveis mesmo quando a base de conversão muda.">
         {selectedRows.length ? (
-          <div className="market-card-grid">
+          <div
+            style={{
+              display: 'grid',
+              gap: 16,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            }}
+          >
             {selectedRows.map((item) => {
               const ticker = item.ticker || {};
-              const quoteCurrency = quoteAsset || baseCurrency || 'USDT';
+              const volume = safeNumber(ticker.quoteVolume);
               return (
-                <article key={item.symbol} className="market-card">
-                  <div className="market-card__header">
-                    <div>
-                      <h3>{item.symbol}</h3>
-                      <p>{item.positive ? 'Movimento positivo em 24h' : 'Movimento negativo em 24h'}</p>
+                <article
+                  key={item.symbol}
+                  className="alert-card"
+                  style={{
+                    display: 'grid',
+                    gap: 12,
+                    alignContent: 'start',
+                    minHeight: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <strong style={{ fontSize: 18 }}>{item.symbol}</strong>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <Pill tone={item.positive ? 'success' : 'danger'}>
+                          {item.positive ? 'Alta 24h' : 'Baixa 24h'}
+                        </Pill>
+                        {item.isFavorite ? <Pill tone="warning">Favorito</Pill> : null}
+                      </div>
                     </div>
                     <button
                       type="button"
-                      className={`favorite-toggle ${item.isFavorite ? 'is-active' : ''}`}
                       onClick={() => toggleFavorite(item.symbol)}
-                      aria-label={item.isFavorite ? `Remover ${item.symbol} dos favoritos` : `Adicionar ${item.symbol} aos favoritos`}
+                      aria-label={
+                        item.isFavorite
+                          ? `Remover ${item.symbol} dos favoritos`
+                          : `Adicionar ${item.symbol} aos favoritos`
+                      }
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        fontSize: 22,
+                        lineHeight: 1,
+                        cursor: 'pointer',
+                        color: item.isFavorite ? '#facc15' : 'rgba(148, 163, 184, 0.7)',
+                      }}
                     >
                       ★
                     </button>
                   </div>
 
-                  <div className="market-card__metrics">
-                    <div>
-                      <small>Preço atual</small>
-                      <strong>{formatMoney(item.price, quoteCurrency)}</strong>
-                    </div>
-                    <div>
-                      <small>Variação 24h</small>
-                      <strong className={item.positive ? 'positive' : 'negative'}>
-                        {item.positive ? '+' : ''}
-                        {formatPercent(item.changePct, 2)}
-                      </strong>
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <div style={{ opacity: 0.72, fontSize: 13 }}>Preço atual</div>
+                    <div style={{ fontSize: 24, fontWeight: 700 }}>
+                      {formatMoney(item.price, item.quoteCurrency || quoteAsset || baseCurrency)}
                     </div>
                   </div>
 
-                  <SparklineChart
-                    values={item.values}
-                    positive={item.positive}
-                    ariaLabel={`Mini gráfico do ativo ${item.symbol}`}
-                  />
-
-                  <div className="market-card__meta">
-                    <span>Volume 24h: {formatNumber(ticker.quoteVolume || 0, 2)}</span>
-                    <span className={signedClassName(item.changePct)}>
-                      Momentum: {item.positive ? 'positivo' : 'negativo'}
-                    </span>
-                    <span>Trades: {formatNumber(ticker.tradeCount || 0, 0)}</span>
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <div style={{ opacity: 0.72, fontSize: 13 }}>Variação 24h</div>
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        color: item.positive ? 'var(--success-500, #22c55e)' : 'var(--danger-500, #ef4444)',
+                      }}
+                    >
+                      {item.positive ? '+' : ''}
+                      {formatPercent(item.changePct, 2)}
+                    </div>
                   </div>
 
-                  <div className="market-card__actions">
-                    <button type="button" className="button button--ghost button--small" onClick={() => openFilteredPage('operacoes', item.symbol)}>
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <div style={{ opacity: 0.72, fontSize: 13 }}>Volume 24h</div>
+                    <div>{formatNumber(volume, 2)}</div>
+                  </div>
+
+                  <div style={{ borderRadius: 14, overflow: 'hidden', background: 'rgba(15, 23, 42, 0.35)', padding: 10 }}>
+                    <SparklineChart values={item.values} />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button type="button" className="button button--ghost" onClick={() => openModal('operacoes', item.symbol)}>
                       Operações
                     </button>
-                    <button type="button" className="button button--ghost button--small" onClick={() => openFilteredPage('execucao', item.symbol)}>
+                    <button type="button" className="button button--ghost" onClick={() => openModal('execucao', item.symbol)}>
                       Execução
                     </button>
-                    <button type="button" className="button button--ghost button--small" onClick={() => openFilteredPage('social', item.symbol)}>
+                    <button type="button" className="button button--ghost" onClick={() => openModal('social', item.symbol)}>
                       Social
                     </button>
                   </div>
@@ -585,11 +737,61 @@ export default function MercadoPage({ ctx = {} }) {
             })}
           </div>
         ) : (
-          <div className="empty-state">
-            Escolha um ou mais pares na lista para montar os cards com mini gráfico e variação de 24h.
-          </div>
+          <div style={{ opacity: 0.75 }}>Selecione pares ou favorite moedas para preencher os cards.</div>
         )}
       </Section>
-    </div>
+
+      {ModalPage && modalCtx ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 6, 23, 0.72)',
+            zIndex: 1000,
+            display: 'grid',
+            placeItems: 'center',
+            padding: 20,
+          }}
+          onClick={() => setModalState(null)}
+        >
+          <div
+            style={{
+              width: 'min(1200px, 96vw)',
+              maxHeight: '92vh',
+              overflow: 'auto',
+              background: 'var(--panel, #0f172a)',
+              borderRadius: 20,
+              border: '1px solid rgba(148, 163, 184, 0.18)',
+              padding: 20,
+              boxShadow: '0 30px 80px rgba(2, 6, 23, 0.5)',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                marginBottom: 16,
+              }}
+            >
+              <div style={{ display: 'grid', gap: 4 }}>
+                <strong style={{ fontSize: 20 }}>{buildModalTitle(modalState.page, modalState.symbol)}</strong>
+                <span style={{ opacity: 0.72, fontSize: 13 }}>
+                  Visualização filtrada por moeda sem sair da página Mercado.
+                </span>
+              </div>
+              <button type="button" className="button" onClick={() => setModalState(null)}>
+                Fechar
+              </button>
+            </div>
+            <ModalPage ctx={modalCtx} />
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
