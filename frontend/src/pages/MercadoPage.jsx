@@ -452,6 +452,8 @@ export default function MercadoPage({ ctx = {} }) {
           ticker,
           values,
           price,
+          maxPrice: Number.isFinite(maxValue) ? maxValue : price,
+          minPrice: Number.isFinite(minValue) ? minValue : price,
           changePct: computedChangePct,
           maxVariationPct,
           minVariationPct,
@@ -738,16 +740,30 @@ export default function MercadoPage({ ctx = {} }) {
                   </button>
                 </div>
 
-                <div className="market-mini-stats" style={{ marginBottom: 16 }}>
-                  <div className="market-mini-stat-card">
+                <div className="market-mini-stats market-mini-stats--six" style={{ marginBottom: 16 }}>
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
                     <span className="market-mini-stat-card__label">Preço atual</span>
                     <strong className="market-mini-stat-card__value">
                       {formatMoney(item.price, item.quoteCurrency || quoteAsset || baseCurrency)}
                     </strong>
                   </div>
 
-                  <div className="market-mini-stat-card">
-                    <span className="market-mini-stat-card__label">Variação</span>
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
+                    <span className="market-mini-stat-card__label">Preço máximo</span>
+                    <strong className="market-mini-stat-card__value">
+                      {formatMoney(item.maxPrice, item.quoteCurrency || quoteAsset || baseCurrency)}
+                    </strong>
+                  </div>
+
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
+                    <span className="market-mini-stat-card__label">Preço mínimo</span>
+                    <strong className="market-mini-stat-card__value">
+                      {formatMoney(item.minPrice, item.quoteCurrency || quoteAsset || baseCurrency)}
+                    </strong>
+                  </div>
+
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
+                    <span className="market-mini-stat-card__label">Variação no período</span>
                     <strong
                       className={`market-mini-stat-card__value ${
                         item.positive ? 'text-positive' : 'text-negative'
@@ -758,7 +774,7 @@ export default function MercadoPage({ ctx = {} }) {
                     </strong>
                   </div>
 
-                  <div className="market-mini-stat-card">
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
                     <span className="market-mini-stat-card__label">Variação máxima</span>
                     <strong
                       className={`market-mini-stat-card__value ${
@@ -770,7 +786,7 @@ export default function MercadoPage({ ctx = {} }) {
                     </strong>
                   </div>
 
-                  <div className="market-mini-stat-card">
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
                     <span className="market-mini-stat-card__label">Variação mínima</span>
                     <strong
                       className={`market-mini-stat-card__value ${
@@ -780,11 +796,6 @@ export default function MercadoPage({ ctx = {} }) {
                       {item.minVariationPct >= 0 ? '+' : ''}
                       {formatPercent(item.minVariationPct, 2)}
                     </strong>
-                  </div>
-
-                  <div className="market-mini-stat-card">
-                    <span className="market-mini-stat-card__label">Volume</span>
-                    <strong className="market-mini-stat-card__value">{formatNumber(item.volume, 2)}</strong>
                   </div>
                 </div>
 
