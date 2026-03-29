@@ -486,9 +486,9 @@ export default function MercadoPage({ ctx = {} }) {
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            <Pill tone="info">Pares {quoteAsset}: {symbols.length}</Pill>
-            <Pill tone="neutral">Selecionados: {selectedSymbols.length}</Pill>
-            <Pill tone="warning">Favoritos: {favorites.length}</Pill>
+            <Pill tone="info">{`Pares ${quoteAsset}: ${symbols.length}`}</Pill>
+            <Pill tone="neutral">{`Selecionados: ${selectedSymbols.length}`}</Pill>
+            <Pill tone="warning">{`Favoritos: ${favorites.length}`}</Pill>
             {loading.preferences ? <Pill tone="info">Sincronizando favoritos…</Pill> : null}
             {loading.cards ? <Pill tone="info">Atualizando cards…</Pill> : null}
           </div>
