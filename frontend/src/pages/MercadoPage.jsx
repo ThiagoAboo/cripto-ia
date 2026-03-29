@@ -8,11 +8,16 @@ import SocialPage from './SocialPage';
 import { getApiBaseUrl } from '../lib/api';
 import { formatMoney, formatNumber, formatPercent } from '../lib/format';
 
-const STORAGE_KEY = 'criptoia.mercado.v4';
+const STORAGE_KEY = 'criptoia.mercado.v5';
 const DEFAULT_QUOTE = 'USDT';
-const DEFAULT_INTERVAL = '5m';
-const DEFAULT_LIMIT = 48;
-const INTERVAL_OPTIONS = ['1m', '5m', '15m', '1h', '4h'];
+const DEFAULT_CHART_RANGE = '1d';
+const CHART_RANGE_OPTIONS = [
+  { value: '1d', label: '1 dia', apiInterval: '1h', limit: 24 },
+  { value: '1w', label: '1 semana', apiInterval: '4h', limit: 42 },
+  { value: '1mo', label: '1 mês', apiInterval: '1d', limit: 30 },
+  { value: '1y', label: '1 ano', apiInterval: '1d', limit: 365 },
+  { value: 'all', label: 'Todo período', apiInterval: '1M', limit: 240 },
+];
 const QUOTE_OPTIONS = ['USDT', 'BRL', 'BTC', 'ETH', 'BNB'];
 const MODAL_COMPONENTS = {
   operacoes: OperacoesPage,
@@ -86,7 +91,7 @@ function buildPresetPayload(name, state) {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name,
     quoteAsset: state.quoteAsset,
-    interval: state.interval,
+    chartRange: state.chartRange,
     selectedSymbols: state.selectedSymbols,
     favorites: state.favorites,
     createdAt: new Date().toISOString(),
@@ -97,6 +102,55 @@ function readChartValues(candles = []) {
   return safeArray(candles)
     .map((item) => safeNumber(item.close ?? item[4], Number.NaN))
     .filter((value) => Number.isFinite(value));
+}
+
+function normalizeChartRange(value) {
+  const normalized = String(value || '').trim();
+  if (CHART_RANGE_OPTIONS.some((option) => option.value === normalized)) {
+    return normalized;
+  }
+
+  if (['1m', '5m', '15m', '1h', '4h'].includes(normalized)) {
+    return DEFAULT_CHART_RANGE;
+  }
+
+  return DEFAULT_CHART_RANGE;
+}
+
+function getChartRangeOption(value) {
+  return (
+    CHART_RANGE_OPTIONS.find((option) => option.value === normalizeChartRange(value)) ||
+    CHART_RANGE_OPTIONS[0]
+  );
+}
+
+function computePeriodMetrics(candles = [], ticker = null) {
+  const normalizedCandles = safeArray(candles);
+  const closes = normalizedCandles
+    .map((item) => safeNumber(item.close ?? item[4], Number.NaN))
+    .filter((value) => Number.isFinite(value));
+
+  const firstClose = closes[0];
+  const lastClose = closes[closes.length - 1];
+  const fallbackChangePct = safeNumber(ticker?.priceChangePercent);
+
+  const changePct =
+    Number.isFinite(firstClose) &&
+    Number.isFinite(lastClose) &&
+    Math.abs(firstClose) > Number.EPSILON
+      ? ((lastClose - firstClose) / firstClose) * 100
+      : fallbackChangePct;
+
+  const volume = normalizedCandles.reduce(
+    (total, candle) => total + safeNumber(candle.quoteVolume ?? candle[7]),
+    0,
+  );
+
+  return {
+    changePct,
+    volume,
+    positive: changePct >= 0,
+  };
 }
 
 function cloneConfig(value) {
@@ -117,7 +171,7 @@ function buildModalTitle(page, symbol) {
 export default function MercadoPage({ ctx = {} }) {
   const stored = loadStoredState();
   const [quoteAsset, setQuoteAsset] = useState(stored?.quoteAsset || DEFAULT_QUOTE);
-  const [interval, setInterval] = useState(stored?.interval || DEFAULT_INTERVAL);
+  const [chartRange, setChartRange] = useState(normalizeChartRange(stored?.chartRange || stored?.interval));
   const [symbolSearch, setSymbolSearch] = useState('');
   const [selectedSymbols, setSelectedSymbols] = useState(uniqueSymbols(stored?.selectedSymbols));
   const [favorites, setFavorites] = useState(uniqueSymbols(stored?.favorites));
@@ -142,12 +196,12 @@ export default function MercadoPage({ ctx = {} }) {
   useEffect(() => {
     persistState({
       quoteAsset,
-      interval,
+      chartRange,
       selectedSymbols,
       favorites,
       presets,
     });
-  }, [favorites, interval, presets, quoteAsset, selectedSymbols]);
+  }, [chartRange, favorites, presets, quoteAsset, selectedSymbols]);
 
   useEffect(() => {
     let cancelled = false;
@@ -278,6 +332,8 @@ export default function MercadoPage({ ctx = {} }) {
     [favorites, selectedSymbols],
   );
 
+  const activeRange = useMemo(() => getChartRangeOption(chartRange), [chartRange]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -297,7 +353,7 @@ export default function MercadoPage({ ctx = {} }) {
         const candlePayloads = await Promise.all(
           cardSymbols.map(async (symbol) => {
             const payload = await requestJson(
-              `/api/market/candles/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}&limit=${DEFAULT_LIMIT}`,
+              `/api/market/candles/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(activeRange.apiInterval)}&limit=${activeRange.limit}`,
             );
             return [symbol, safeArray(payload.items || payload.candles || payload)];
           }),
@@ -327,7 +383,7 @@ export default function MercadoPage({ ctx = {} }) {
     return () => {
       cancelled = true;
     };
-  }, [cardSymbols, interval]);
+  }, [activeRange.apiInterval, activeRange.limit, cardSymbols]);
 
   const filteredSymbols = useMemo(() => {
     const term = symbolSearch.trim().toUpperCase();
@@ -345,14 +401,15 @@ export default function MercadoPage({ ctx = {} }) {
         const candles = safeArray(candlesBySymbol[symbol]);
         const values = readChartValues(candles);
         const price = safeNumber(ticker?.price || values[values.length - 1]);
-        const changePct = safeNumber(ticker?.priceChangePercent);
+        const metrics = computePeriodMetrics(candles, ticker);
         return {
           symbol,
           ticker,
           values,
           price,
-          changePct,
-          positive: changePct >= 0,
+          changePct: metrics.changePct,
+          rangeVolume: metrics.volume,
+          positive: metrics.positive,
           isFavorite: favorites.includes(symbol),
           quoteCurrency: symbol.endsWith('USDT')
             ? 'USDT'
@@ -414,17 +471,17 @@ export default function MercadoPage({ ctx = {} }) {
 
   function applyPreset(preset) {
     setQuoteAsset(preset.quoteAsset || DEFAULT_QUOTE);
-    setInterval(preset.interval || DEFAULT_INTERVAL);
+    setChartRange(normalizeChartRange(preset.chartRange || preset.interval));
     setSelectedSymbols(uniqueSymbols(preset.selectedSymbols));
     setFavorites(uniqueSymbols(preset.favorites));
   }
 
   function saveCurrentPreset() {
-    const name = window.prompt('Nome do preset de mercado:', `Mercado ${quoteAsset} ${interval}`);
+    const name = window.prompt('Nome do preset de mercado:', `Mercado ${quoteAsset} ${activeRange.label}`);
     if (!name) return;
     setPresets((current) =>
       [
-        buildPresetPayload(name, { quoteAsset, interval, selectedSymbols, favorites }),
+        buildPresetPayload(name, { quoteAsset, chartRange, selectedSymbols, favorites }),
         ...current,
       ].slice(0, 8),
     );
@@ -442,7 +499,7 @@ export default function MercadoPage({ ctx = {} }) {
     <>
       <Section
         title="Mercado"
-        description="Acompanhe pares, mantenha favoritos sincronizados com Símbolos e abra análises filtradas sem sair desta tela."
+        description="Acompanhe pares, mantenha favoritos sincronizados com Símbolos e abra análises filtradas sem sair desta tela. Variação e volume acompanham o intervalo selecionado."
       >
         <div style={{ display: 'grid', gap: 16 }}>
           <div
@@ -466,10 +523,10 @@ export default function MercadoPage({ ctx = {} }) {
 
             <label>
               <div style={{ marginBottom: 6, fontWeight: 600 }}>Intervalo do mini gráfico</div>
-              <select value={interval} onChange={(event) => setInterval(event.target.value)}>
-                {INTERVAL_OPTIONS.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
+              <select value={chartRange} onChange={(event) => setChartRange(event.target.value)}>
+                {CHART_RANGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
@@ -597,7 +654,7 @@ export default function MercadoPage({ ctx = {} }) {
                       <div style={{ display: 'grid', gap: 2 }}>
                         <strong>{preset.name}</strong>
                         <span style={{ opacity: 0.72, fontSize: 13 }}>
-                          {preset.quoteAsset} · {preset.interval} · {uniqueSymbols(preset.selectedSymbols).length} pares
+                          {preset.quoteAsset} · {getChartRangeOption(preset.chartRange || preset.interval).label} · {uniqueSymbols(preset.selectedSymbols).length} pares
                         </span>
                       </div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -627,7 +684,7 @@ export default function MercadoPage({ ctx = {} }) {
         </div>
       </Section>
 
-      <Section title="Cards de mercado" description="Favoritos continuam visíveis mesmo quando a base de conversão muda.">
+      <Section title="Cards de mercado" description="Favoritos continuam visíveis mesmo quando a base de conversão muda, e variação/volume seguem o período selecionado.">
         {selectedRows.length ? (
           <div
             style={{
@@ -638,7 +695,7 @@ export default function MercadoPage({ ctx = {} }) {
           >
             {selectedRows.map((item) => {
               const ticker = item.ticker || {};
-              const volume = safeNumber(ticker.quoteVolume);
+              const volume = safeNumber(item.rangeVolume);
               return (
                 <article
                   key={item.symbol}
@@ -662,7 +719,7 @@ export default function MercadoPage({ ctx = {} }) {
                       <strong style={{ fontSize: 18 }}>{item.symbol}</strong>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <Pill tone={item.positive ? 'success' : 'danger'}>
-                          {item.positive ? 'Alta 24h' : 'Baixa 24h'}
+                          {item.positive ? 'Alta no período' : 'Baixa no período'}
                         </Pill>
                         {item.isFavorite ? <Pill tone="warning">Favorito</Pill> : null}
                       </div>
@@ -696,7 +753,7 @@ export default function MercadoPage({ ctx = {} }) {
                   </div>
 
                   <div style={{ display: 'grid', gap: 4 }}>
-                    <div style={{ opacity: 0.72, fontSize: 13 }}>Variação 24h</div>
+                    <div style={{ opacity: 0.72, fontSize: 13 }}>{`Variação (${activeRange.label})`}</div>
                     <div
                       style={{
                         fontWeight: 700,
@@ -709,7 +766,7 @@ export default function MercadoPage({ ctx = {} }) {
                   </div>
 
                   <div style={{ display: 'grid', gap: 4 }}>
-                    <div style={{ opacity: 0.72, fontSize: 13 }}>Volume 24h</div>
+                    <div style={{ opacity: 0.72, fontSize: 13 }}>{`Volume (${activeRange.label})`}</div>
                     <div>{formatNumber(volume, 2)}</div>
                   </div>
 
@@ -733,7 +790,7 @@ export default function MercadoPage({ ctx = {} }) {
             })}
           </div>
         ) : (
-          <div style={{ opacity: 0.75 }}>Selecione pares ou favorite moedas para preencher os cards.</div>
+          <div style={{ opacity: 0.75 }}>Selecione pares ou favorite moedas para preencher os cards e ver a variação do período escolhido.</div>
         )}
       </Section>
 
