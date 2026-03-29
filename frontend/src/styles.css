@@ -231,7 +231,7 @@ a { color: inherit; }
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
 }
-.section-card--loading { min-height: 220px; display: grid; place-items: center; }
+.section-card--loading { min-height: 96px; padding-top: 14px; padding-bottom: 14px; display: flex; align-items: center; }
 .section-card__header {
   display: flex;
   justify-content: space-between;
@@ -251,8 +251,8 @@ a { color: inherit; }
 .section-card__actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .section-card__body { display: flex; flex-direction: column; gap: 14px; }
 
-.loading-state { display: flex; gap: 14px; align-items: center; }
-.loading-state p { margin: 4px 0 0; color: var(--muted); }
+.loading-state { display: flex; gap: 12px; align-items: center; min-height: 0; }
+.loading-state p { margin: 2px 0 0; color: var(--muted); }
 .loading-state__spinner {
   width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.12);
   border-top-color: #8fb8ff; animation: spin 0.9s linear infinite;

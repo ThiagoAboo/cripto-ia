@@ -130,10 +130,6 @@ function getIntervalConfig(intervalValue) {
   );
 }
 
-function getIntervalLabel(intervalValue) {
-  return getIntervalConfig(intervalValue)?.label || intervalValue || DEFAULT_INTERVAL;
-}
-
 function readCloseValues(candles = []) {
   return safeArray(candles)
     .map((item) => safeNumber(item?.close ?? item?.[4], Number.NaN))
@@ -196,14 +192,12 @@ export default function MercadoPage({ ctx = {} }) {
   const [error, setError] = useState('');
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [modalState, setModalState] = useState(null);
-  const [refreshTick, setRefreshTick] = useState(0);
 
   const favoritesHydratedRef = useRef(false);
   const lastPersistedFavoritesRef = useRef(JSON.stringify(uniqueSymbols(stored?.favorites)));
 
   const baseCurrency = ctx.baseCurrency || 'USDT';
   const intervalConfig = useMemo(() => getIntervalConfig(interval), [interval]);
-  const intervalLabel = useMemo(() => getIntervalLabel(interval), [interval]);
 
   const configSymbols = useMemo(
     () => uniqueSymbols(ctx?.draftConfig?.trading?.symbols),
@@ -317,18 +311,6 @@ export default function MercadoPage({ ctx = {} }) {
   }, [configSymbols, ctx, favorites]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-
-    const timer = window.setInterval(() => {
-      setRefreshTick((current) => current + 1);
-    }, 60_000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
 
     async function loadUniverse() {
@@ -367,10 +349,7 @@ export default function MercadoPage({ ctx = {} }) {
   }, [quoteAsset]);
 
   const cardSymbols = useMemo(
-    () =>
-      uniqueSymbols([...favorites, ...selectedSymbols]).sort((left, right) =>
-        left.localeCompare(right, 'pt-BR', { sensitivity: 'base' }),
-      ),
+    () => uniqueSymbols([...favorites, ...selectedSymbols]),
     [favorites, selectedSymbols],
   );
 
@@ -428,7 +407,7 @@ export default function MercadoPage({ ctx = {} }) {
     return () => {
       cancelled = true;
     };
-  }, [cardSymbols, intervalConfig.apiInterval, intervalConfig.limit, refreshTick]);
+  }, [cardSymbols, intervalConfig.apiInterval, intervalConfig.limit]);
 
   const filteredSymbols = useMemo(() => {
     const term = symbolSearch.trim().toUpperCase();
@@ -473,8 +452,6 @@ export default function MercadoPage({ ctx = {} }) {
           ticker,
           values,
           price,
-          maxPrice: Number.isFinite(maxValue) ? maxValue : price,
-          minPrice: Number.isFinite(minValue) ? minValue : price,
           changePct: computedChangePct,
           maxVariationPct,
           minVariationPct,
@@ -515,15 +492,11 @@ export default function MercadoPage({ ctx = {} }) {
   const ModalPage = modalState ? MODAL_COMPONENTS[modalState.page] : null;
 
   function toggleFavorite(symbol) {
-    const isFavorite = favorites.includes(symbol);
-
-    if (isFavorite) {
-      setFavorites((current) => current.filter((item) => item !== symbol));
-      setSelectedSymbols((current) => uniqueSymbols([symbol, ...current]));
-      return;
-    }
-
-    setFavorites((current) => uniqueSymbols([symbol, ...current]));
+    setFavorites((current) =>
+      current.includes(symbol)
+        ? current.filter((item) => item !== symbol)
+        : uniqueSymbols([symbol, ...current]),
+    );
   }
 
   function toggleSelectedSymbol(symbol) {
@@ -585,7 +558,7 @@ export default function MercadoPage({ ctx = {} }) {
           </label>
 
           <label className="field">
-            <span className="field__label">Intervalo do gráfico</span>
+            <span className="field__label">Intervalo do mini gráfico</span>
             <select value={interval} onChange={(event) => setInterval(event.target.value)}>
               {INTERVAL_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -627,34 +600,27 @@ export default function MercadoPage({ ctx = {} }) {
         </div>
 
         {selectorOpen ? (
-          <div className="market-card market-select-card" style={{ marginBottom: 20 }}>
+          <div className="market-selector-panel" style={{ marginBottom: 20 }}>
             {filteredSymbols.length ? (
-              <div className="market-selector-list">
-                {filteredSymbols.map((item) => {
-                  const checked = selectedSymbols.includes(item.symbol);
-                  const isFavorite = favorites.includes(item.symbol);
+              filteredSymbols.map((item) => {
+                const checked = selectedSymbols.includes(item.symbol);
 
-                  return (
-                    <label
-                      key={item.symbol}
-                      className={`market-selector-option ${checked ? 'is-selected' : ''}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleSelectedSymbol(item.symbol)}
-                      />
-                      <div className="market-selector-option__main">
-                        <strong>{item.symbol}</strong>
-                        <small>{item.baseAsset || item.symbol.replace(quoteAsset, '')}</small>
+                return (
+                  <label key={item.symbol} className="selector-option">
+                    <div>
+                      <strong>{item.symbol}</strong>
+                      <div className="muted">
+                        {item.baseAsset || item.symbol.replace(quoteAsset, '')}
                       </div>
-                      <div className="market-selector-option__meta">
-                        {isFavorite ? 'Favorito' : checked ? 'Selecionado' : 'Disponível'}
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleSelectedSymbol(item.symbol)}
+                    />
+                  </label>
+                );
+              })
             ) : (
               <div className="callout callout--warning">
                 Nenhum par encontrado para o filtro informado.
@@ -765,37 +731,23 @@ export default function MercadoPage({ ctx = {} }) {
                       fontSize: 22,
                       lineHeight: 1,
                       cursor: 'pointer',
-                      color: item.isFavorite ? '#facc15' : '#ffffff',
+                      color: item.isFavorite ? '#facc15' : 'rgba(148, 163, 184, 0.7)',
                     }}
                   >
                     ★
                   </button>
                 </div>
 
-                <div className="market-mini-stats market-mini-stats--six" style={{ marginBottom: 16 }}>
-                  <div className="market-mini-stat-card market-mini-stat-card--compact">
+                <div className="market-mini-stats" style={{ marginBottom: 16 }}>
+                  <div className="market-mini-stat-card">
                     <span className="market-mini-stat-card__label">Preço atual</span>
                     <strong className="market-mini-stat-card__value">
                       {formatMoney(item.price, item.quoteCurrency || quoteAsset || baseCurrency)}
                     </strong>
                   </div>
 
-                  <div className="market-mini-stat-card market-mini-stat-card--compact">
-                    <span className="market-mini-stat-card__label">Preço máximo</span>
-                    <strong className="market-mini-stat-card__value">
-                      {formatMoney(item.maxPrice, item.quoteCurrency || quoteAsset || baseCurrency)}
-                    </strong>
-                  </div>
-
-                  <div className="market-mini-stat-card market-mini-stat-card--compact">
-                    <span className="market-mini-stat-card__label">Preço mínimo</span>
-                    <strong className="market-mini-stat-card__value">
-                      {formatMoney(item.minPrice, item.quoteCurrency || quoteAsset || baseCurrency)}
-                    </strong>
-                  </div>
-
-                  <div className="market-mini-stat-card market-mini-stat-card--compact">
-                    <span className="market-mini-stat-card__label">{`Variação de ${intervalLabel}`}</span>
+                  <div className="market-mini-stat-card">
+                    <span className="market-mini-stat-card__label">Variação</span>
                     <strong
                       className={`market-mini-stat-card__value ${
                         item.positive ? 'text-positive' : 'text-negative'
@@ -806,7 +758,7 @@ export default function MercadoPage({ ctx = {} }) {
                     </strong>
                   </div>
 
-                  <div className="market-mini-stat-card market-mini-stat-card--compact">
+                  <div className="market-mini-stat-card">
                     <span className="market-mini-stat-card__label">Variação máxima</span>
                     <strong
                       className={`market-mini-stat-card__value ${
@@ -818,7 +770,7 @@ export default function MercadoPage({ ctx = {} }) {
                     </strong>
                   </div>
 
-                  <div className="market-mini-stat-card market-mini-stat-card--compact">
+                  <div className="market-mini-stat-card">
                     <span className="market-mini-stat-card__label">Variação mínima</span>
                     <strong
                       className={`market-mini-stat-card__value ${
@@ -828,6 +780,11 @@ export default function MercadoPage({ ctx = {} }) {
                       {item.minVariationPct >= 0 ? '+' : ''}
                       {formatPercent(item.minVariationPct, 2)}
                     </strong>
+                  </div>
+
+                  <div className="market-mini-stat-card">
+                    <span className="market-mini-stat-card__label">Volume</span>
+                    <strong className="market-mini-stat-card__value">{formatNumber(item.volume, 2)}</strong>
                   </div>
                 </div>
 

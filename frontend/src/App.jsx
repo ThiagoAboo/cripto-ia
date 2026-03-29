@@ -46,11 +46,8 @@ export default function App() {
       onRefresh={loadEverything}
     >
       {loading ? (
-        <section
-          className="section-card section-card--loading"
-          style={{ minHeight: 180, paddingTop: 24, paddingBottom: 24 }}
-        >
-          <div className="loading-state" style={{ minHeight: 'auto', alignItems: 'center' }}>
+        <section className="section-card section-card--loading">
+          <div className="loading-state">
             <div className="loading-state__spinner" aria-hidden="true" />
             <div>
               <strong>Carregando painel...</strong>
