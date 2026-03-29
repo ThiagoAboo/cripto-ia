@@ -1,0 +1,59 @@
+/* Correção do modal aberto a partir da página Mercado.
+   Força o conteúdo filtrado (Operações / Execução / Social) a abrir em overlay
+   mesmo quando algum contexto de layout empurra o bloco para dentro do fluxo da página. */
+
+[role='dialog'][aria-modal='true'] {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1200 !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 20px !important;
+  overflow-y: auto !important;
+  background: rgba(2, 6, 23, 0.72) !important;
+}
+
+[role='dialog'][aria-modal='true'] > div {
+  width: min(1200px, 96vw) !important;
+  max-height: 92vh !important;
+  overflow: auto !important;
+  background: var(--panel, #0f172a) !important;
+  border-radius: 20px !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  padding: 20px !important;
+  box-shadow: 0 30px 80px rgba(2, 6, 23, 0.5) !important;
+}
+
+[role='dialog'][aria-modal='true'] > div > div:first-child {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.92));
+  margin: -20px -20px 16px;
+  padding: 20px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+@supports selector(body:has(*)) {
+  body:has([role='dialog'][aria-modal='true']) {
+    overflow: hidden;
+  }
+}
+
+@media (max-width: 820px) {
+  [role='dialog'][aria-modal='true'] {
+    padding: 12px !important;
+  }
+
+  [role='dialog'][aria-modal='true'] > div {
+    width: min(100vw, 100%) !important;
+    max-height: 96vh !important;
+    padding: 14px !important;
+    border-radius: 16px !important;
+  }
+
+  [role='dialog'][aria-modal='true'] > div > div:first-child {
+    margin: -14px -14px 14px;
+    padding: 14px;
+  }
+}
