@@ -1112,12 +1112,24 @@ export default function DashboardPage({ ctx }) {
                         </div>
                       </div>
                       {isMeaningful(formatOptionalDateTime(order.createdAt)) ? <p>{formatOptionalDateTime(order.createdAt)}</p> : null}
-                      <p>
-                        Preço: {formatMaybeMoney(order.price, baseCurrency)} • PnL:{' '}
-                        <span className={Number(order.realizedPnl || 0) >= 0 ? 'value-positive' : 'value-negative'}>
-                          {formatMaybeMoney(order.realizedPnl, baseCurrency)}
-                        </span>
-                      </p>
+                      {Number(order.executedQuantity || 0) > 0 || Number(order.price || 0) > 0 ? (
+                        <p>
+                          Preço: {formatMaybeMoney(order.price, baseCurrency)} • PnL:{' '}
+                          <span className={Number(order.realizedPnl || 0) >= 0 ? 'value-positive' : 'value-negative'}>
+                            {formatMaybeMoney(order.realizedPnl, baseCurrency)}
+                          </span>
+                        </p>
+                      ) : isMeaningful(joinMetaParts([
+                        Number(order.requestedQuantity || 0) > 0 ? `Qtd solicitada: ${formatNumber(order.requestedQuantity, 6)}` : null,
+                        Number(order.requestedNotional || 0) > 0 ? `Notional: ${formatMaybeMoney(order.requestedNotional, baseCurrency)}` : null,
+                      ])) ? (
+                        <p>{joinMetaParts([
+                          Number(order.requestedQuantity || 0) > 0 ? `Qtd solicitada: ${formatNumber(order.requestedQuantity, 6)}` : null,
+                          Number(order.requestedNotional || 0) > 0 ? `Notional: ${formatMaybeMoney(order.requestedNotional, baseCurrency)}` : null,
+                        ])}</p>
+                      ) : (
+                        <p>Sem execução financeira.</p>
+                      )}
                       {isMeaningful(orderReason) ? <p>Motivo: {toText(orderReason)}</p> : null}
                     </div>
                   );

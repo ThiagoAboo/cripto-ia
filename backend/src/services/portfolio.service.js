@@ -198,6 +198,23 @@ async function getPaperSummary(configOverride = null) {
   const unrealizedPnl = positions.reduce((sum, item) => sum + item.unrealizedPnl, 0);
   const realizedPnl = Number(accountRow.realizedPnl);
   const feesPaid = Number(accountRow.feesPaid);
+  const bnbFeesResult = await pool.query(
+    `
+      SELECT COALESCE(
+        SUM(
+          CASE
+            WHEN status = 'FILLED' THEN COALESCE((payload->'fee'->>'bnbAmount')::numeric, 0)
+            ELSE 0
+          END
+        ),
+        0
+      ) AS "feesPaidBnb"
+      FROM paper_orders
+      WHERE account_key = $1
+    `,
+    [settings.accountKey],
+  );
+  const feesPaidBnb = Number(bnbFeesResult.rows[0]?.feesPaidBnb || 0);
   const startingBalance = Number(accountRow.startingBalance);
   const equity = cashBalance + positionsValue;
   const openPositionsCount = positions.length;
@@ -214,6 +231,7 @@ async function getPaperSummary(configOverride = null) {
     realizedPnl,
     unrealizedPnl,
     feesPaid,
+    feesPaidBnb,
     exposurePct,
     openPositionsCount,
     openSymbols: positions.map((item) => item.symbol),
