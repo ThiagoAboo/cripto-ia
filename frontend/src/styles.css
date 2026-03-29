@@ -1726,3 +1726,107 @@ input[type='radio'] {
     width: 100%;
   }
 }
+
+
+
+/* ==============================
+   Mercado overlay consolidado — modal e cards
+   ============================== */
+
+.modal-open {
+  overflow: hidden;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(3, 8, 18, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.modal-shell {
+  width: min(1180px, calc(100vw - 56px));
+  max-height: calc(100vh - 56px);
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(180deg, rgba(14, 24, 42, 0.98), rgba(10, 18, 31, 0.98));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.48);
+}
+
+.modal-shell--xl {
+  width: min(1240px, calc(100vw - 56px));
+}
+
+.modal-shell__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.modal-shell__header h3 {
+  margin: 0 0 6px;
+}
+
+.modal-shell__body {
+  max-height: calc(100vh - 160px);
+  overflow: auto;
+  padding: 18px 20px 20px;
+}
+
+.market-favorite-star {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.market-favorite-star__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1.25rem;
+  transition: transform 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+.market-favorite-star__icon.is-active {
+  color: #facc15;
+}
+
+.market-favorite-star:hover .market-favorite-star__icon {
+  transform: scale(1.05);
+}
+
+.market-selector-list {
+  max-height: 340px;
+}
+
+@media (max-width: 900px) {
+  .modal-backdrop {
+    padding: 14px;
+  }
+
+  .modal-shell,
+  .modal-shell--xl {
+    width: calc(100vw - 28px);
+    max-height: calc(100vh - 28px);
+  }
+
+  .modal-shell__header,
+  .modal-shell__body {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}

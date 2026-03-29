@@ -7,9 +7,9 @@ import OperacoesPage from './OperacoesPage';
 import ExecucaoPage from './ExecucaoPage';
 import SocialPage from './SocialPage';
 import { getApiBaseUrl } from '../lib/api';
-import { formatMoney, formatNumber, formatPercent } from '../lib/format';
+import { formatMoney, formatPercent } from '../lib/format';
 
-const STORAGE_KEY = 'criptoia.mercado.v4';
+const STORAGE_KEY = 'criptoia.mercado.v5';
 const DEFAULT_QUOTE = 'USDT';
 const DEFAULT_INTERVAL = '5m';
 
@@ -130,6 +130,10 @@ function getIntervalConfig(intervalValue) {
   );
 }
 
+function getIntervalLabel(intervalValue) {
+  return getIntervalConfig(intervalValue)?.label || intervalValue || DEFAULT_INTERVAL;
+}
+
 function readCloseValues(candles = []) {
   return safeArray(candles)
     .map((item) => safeNumber(item?.close ?? item?.[4], Number.NaN))
@@ -146,21 +150,6 @@ function readLowValues(candles = []) {
   return safeArray(candles)
     .map((item) => safeNumber(item?.low ?? item?.[3], Number.NaN))
     .filter((value) => Number.isFinite(value));
-}
-
-function readQuoteVolume(candle) {
-  return safeNumber(
-    candle?.quoteVolume ??
-      candle?.quote_asset_volume ??
-      candle?.quoteAssetVolume ??
-      candle?.[7] ??
-      candle?.volume ??
-      candle?.[5],
-  );
-}
-
-function sumQuoteVolumes(candles = []) {
-  return safeArray(candles).reduce((total, candle) => total + readQuoteVolume(candle), 0);
 }
 
 function inferQuoteCurrency(symbol, fallback) {
@@ -192,12 +181,14 @@ export default function MercadoPage({ ctx = {} }) {
   const [error, setError] = useState('');
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [modalState, setModalState] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const favoritesHydratedRef = useRef(false);
   const lastPersistedFavoritesRef = useRef(JSON.stringify(uniqueSymbols(stored?.favorites)));
 
   const baseCurrency = ctx.baseCurrency || 'USDT';
   const intervalConfig = useMemo(() => getIntervalConfig(interval), [interval]);
+  const intervalLabel = useMemo(() => getIntervalLabel(interval), [interval]);
 
   const configSymbols = useMemo(
     () => uniqueSymbols(ctx?.draftConfig?.trading?.symbols),
@@ -311,6 +302,25 @@ export default function MercadoPage({ ctx = {} }) {
   }, [configSymbols, ctx, favorites]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const timer = window.setInterval(() => {
+      setRefreshTick((current) => current + 1);
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    document.body.classList.toggle('modal-open', Boolean(modalState));
+    return () => {
+      document.body.classList.remove('modal-open');
+    };
+  }, [modalState]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadUniverse() {
@@ -349,7 +359,10 @@ export default function MercadoPage({ ctx = {} }) {
   }, [quoteAsset]);
 
   const cardSymbols = useMemo(
-    () => uniqueSymbols([...favorites, ...selectedSymbols]),
+    () =>
+      uniqueSymbols([...favorites, ...selectedSymbols]).sort((left, right) =>
+        left.localeCompare(right, 'pt-BR', { sensitivity: 'base' }),
+      ),
     [favorites, selectedSymbols],
   );
 
@@ -407,7 +420,7 @@ export default function MercadoPage({ ctx = {} }) {
     return () => {
       cancelled = true;
     };
-  }, [cardSymbols, intervalConfig.apiInterval, intervalConfig.limit]);
+  }, [cardSymbols, intervalConfig.apiInterval, intervalConfig.limit, refreshTick]);
 
   const filteredSymbols = useMemo(() => {
     const term = symbolSearch.trim().toUpperCase();
@@ -430,33 +443,36 @@ export default function MercadoPage({ ctx = {} }) {
         const lowValues = readLowValues(candles);
         const firstValue = values[0];
         const lastValue = values[values.length - 1];
-        const maxValue = highValues.length ? Math.max(...highValues) : lastValue;
-        const minValue = lowValues.length ? Math.min(...lowValues) : lastValue;
         const price = safeNumber(ticker?.price || lastValue);
-        const computedChangePct =
+        const maxPrice = highValues.length ? Math.max(...highValues) : price;
+        const minPrice = lowValues.length ? Math.min(...lowValues) : price;
+
+        const changePct =
           Number.isFinite(firstValue) && firstValue > 0 && Number.isFinite(lastValue)
             ? ((lastValue - firstValue) / firstValue) * 100
             : safeNumber(ticker?.priceChangePercent, 0);
+
         const maxVariationPct =
-          Number.isFinite(firstValue) && firstValue > 0 && Number.isFinite(maxValue)
-            ? ((maxValue - firstValue) / firstValue) * 100
-            : computedChangePct;
+          Number.isFinite(firstValue) && firstValue > 0 && Number.isFinite(maxPrice)
+            ? ((maxPrice - firstValue) / firstValue) * 100
+            : changePct;
+
         const minVariationPct =
-          Number.isFinite(firstValue) && firstValue > 0 && Number.isFinite(minValue)
-            ? ((minValue - firstValue) / firstValue) * 100
-            : computedChangePct;
-        const volume = sumQuoteVolumes(candles);
+          Number.isFinite(firstValue) && firstValue > 0 && Number.isFinite(minPrice)
+            ? ((minPrice - firstValue) / firstValue) * 100
+            : changePct;
 
         return {
           symbol,
           ticker,
           values,
           price,
-          changePct: computedChangePct,
+          maxPrice,
+          minPrice,
+          changePct,
           maxVariationPct,
           minVariationPct,
-          volume,
-          positive: computedChangePct >= 0,
+          positive: changePct >= 0,
           isFavorite: favorites.includes(symbol),
           quoteCurrency: inferQuoteCurrency(symbol, quoteAsset || baseCurrency),
         };
@@ -492,11 +508,15 @@ export default function MercadoPage({ ctx = {} }) {
   const ModalPage = modalState ? MODAL_COMPONENTS[modalState.page] : null;
 
   function toggleFavorite(symbol) {
-    setFavorites((current) =>
-      current.includes(symbol)
-        ? current.filter((item) => item !== symbol)
-        : uniqueSymbols([symbol, ...current]),
-    );
+    const isFavorite = favorites.includes(symbol);
+
+    if (isFavorite) {
+      setFavorites((current) => current.filter((item) => item !== symbol));
+      setSelectedSymbols((current) => uniqueSymbols([symbol, ...current]));
+      return;
+    }
+
+    setFavorites((current) => uniqueSymbols([symbol, ...current]));
   }
 
   function toggleSelectedSymbol(symbol) {
@@ -558,7 +578,7 @@ export default function MercadoPage({ ctx = {} }) {
           </label>
 
           <label className="field">
-            <span className="field__label">Intervalo do mini gráfico</span>
+            <span className="field__label">Intervalo do gráfico</span>
             <select value={interval} onChange={(event) => setInterval(event.target.value)}>
               {INTERVAL_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -600,32 +620,39 @@ export default function MercadoPage({ ctx = {} }) {
         </div>
 
         {selectorOpen ? (
-          <div className="market-selector-panel" style={{ marginBottom: 20 }}>
-            {filteredSymbols.length ? (
-              filteredSymbols.map((item) => {
-                const checked = selectedSymbols.includes(item.symbol);
+          <div className="market-select-card" style={{ marginBottom: 20 }}>
+            <div className="market-selector-list">
+              {filteredSymbols.length ? (
+                filteredSymbols.map((item) => {
+                  const checked = selectedSymbols.includes(item.symbol);
+                  const isFavorite = favorites.includes(item.symbol);
 
-                return (
-                  <label key={item.symbol} className="selector-option">
-                    <div>
-                      <strong>{item.symbol}</strong>
-                      <div className="muted">
-                        {item.baseAsset || item.symbol.replace(quoteAsset, '')}
+                  return (
+                    <label
+                      key={item.symbol}
+                      className={`market-selector-option ${checked ? 'is-selected' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSelectedSymbol(item.symbol)}
+                      />
+                      <div className="market-selector-option__main">
+                        <strong>{item.symbol}</strong>
+                        <small>{item.baseAsset || item.symbol.replace(quoteAsset, '')}</small>
                       </div>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleSelectedSymbol(item.symbol)}
-                    />
-                  </label>
-                );
-              })
-            ) : (
-              <div className="callout callout--warning">
-                Nenhum par encontrado para o filtro informado.
-              </div>
-            )}
+                      <div className="market-selector-option__meta">
+                        {isFavorite ? 'favorito' : item.quoteAsset || quoteAsset}
+                      </div>
+                    </label>
+                  );
+                })
+              ) : (
+                <div className="callout callout--warning">
+                  Nenhum par encontrado para o filtro informado.
+                </div>
+              )}
+            </div>
           </div>
         ) : null}
 
@@ -652,7 +679,7 @@ export default function MercadoPage({ ctx = {} }) {
             </div>
           ) : (
             <div className="callout callout--info">
-              Marque a estrela amarela nos cards para sincronizar Favoritos e Símbolos.
+              Marque a estrela nos cards para sincronizar Favoritos e Símbolos.
             </div>
           )}
         </div>
@@ -725,29 +752,41 @@ export default function MercadoPage({ ctx = {} }) {
                         : `Adicionar ${item.symbol} aos favoritos`
                     }
                     onClick={() => toggleFavorite(item.symbol)}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      fontSize: 22,
-                      lineHeight: 1,
-                      cursor: 'pointer',
-                      color: item.isFavorite ? '#facc15' : 'rgba(148, 163, 184, 0.7)',
-                    }}
+                    className="market-favorite-star"
                   >
-                    ★
+                    <span
+                      aria-hidden="true"
+                      className={item.isFavorite ? 'market-favorite-star__icon is-active' : 'market-favorite-star__icon'}
+                    >
+                      ★
+                    </span>
                   </button>
                 </div>
 
-                <div className="market-mini-stats" style={{ marginBottom: 16 }}>
-                  <div className="market-mini-stat-card">
+                <div className="market-mini-stats market-mini-stats--six" style={{ marginBottom: 16 }}>
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
                     <span className="market-mini-stat-card__label">Preço atual</span>
                     <strong className="market-mini-stat-card__value">
                       {formatMoney(item.price, item.quoteCurrency || quoteAsset || baseCurrency)}
                     </strong>
                   </div>
 
-                  <div className="market-mini-stat-card">
-                    <span className="market-mini-stat-card__label">Variação</span>
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
+                    <span className="market-mini-stat-card__label">Preço máximo</span>
+                    <strong className="market-mini-stat-card__value">
+                      {formatMoney(item.maxPrice, item.quoteCurrency || quoteAsset || baseCurrency)}
+                    </strong>
+                  </div>
+
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
+                    <span className="market-mini-stat-card__label">Preço mínimo</span>
+                    <strong className="market-mini-stat-card__value">
+                      {formatMoney(item.minPrice, item.quoteCurrency || quoteAsset || baseCurrency)}
+                    </strong>
+                  </div>
+
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
+                    <span className="market-mini-stat-card__label">{`Variação de ${intervalLabel}`}</span>
                     <strong
                       className={`market-mini-stat-card__value ${
                         item.positive ? 'text-positive' : 'text-negative'
@@ -758,7 +797,7 @@ export default function MercadoPage({ ctx = {} }) {
                     </strong>
                   </div>
 
-                  <div className="market-mini-stat-card">
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
                     <span className="market-mini-stat-card__label">Variação máxima</span>
                     <strong
                       className={`market-mini-stat-card__value ${
@@ -770,7 +809,7 @@ export default function MercadoPage({ ctx = {} }) {
                     </strong>
                   </div>
 
-                  <div className="market-mini-stat-card">
+                  <div className="market-mini-stat-card market-mini-stat-card--compact">
                     <span className="market-mini-stat-card__label">Variação mínima</span>
                     <strong
                       className={`market-mini-stat-card__value ${
@@ -780,11 +819,6 @@ export default function MercadoPage({ ctx = {} }) {
                       {item.minVariationPct >= 0 ? '+' : ''}
                       {formatPercent(item.minVariationPct, 2)}
                     </strong>
-                  </div>
-
-                  <div className="market-mini-stat-card">
-                    <span className="market-mini-stat-card__label">Volume</span>
-                    <strong className="market-mini-stat-card__value">{formatNumber(item.volume, 2)}</strong>
                   </div>
                 </div>
 
@@ -826,7 +860,13 @@ export default function MercadoPage({ ctx = {} }) {
       </Section>
 
       {ModalPage && modalCtx ? (
-        <div className="modal-backdrop" onClick={() => setModalState(null)}>
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label={buildModalTitle(modalState.page, modalState.symbol)}
+          onClick={() => setModalState(null)}
+        >
           <div className="modal-shell modal-shell--xl" onClick={(event) => event.stopPropagation()}>
             <div className="modal-shell__header">
               <div>
