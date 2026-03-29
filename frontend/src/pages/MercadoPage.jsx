@@ -494,11 +494,15 @@ export default function MercadoPage({ ctx = {} }) {
   const ModalPage = modalState ? MODAL_COMPONENTS[modalState.page] : null;
 
   function toggleFavorite(symbol) {
-    setFavorites((current) =>
-      current.includes(symbol)
-        ? current.filter((item) => item !== symbol)
-        : uniqueSymbols([symbol, ...current]),
-    );
+    const isFavorite = favorites.includes(symbol);
+
+    if (isFavorite) {
+      setFavorites((current) => current.filter((item) => item !== symbol));
+      setSelectedSymbols((current) => uniqueSymbols([symbol, ...current]));
+      return;
+    }
+
+    setFavorites((current) => uniqueSymbols([symbol, ...current]));
   }
 
   function toggleSelectedSymbol(symbol) {
@@ -602,27 +606,34 @@ export default function MercadoPage({ ctx = {} }) {
         </div>
 
         {selectorOpen ? (
-          <div className="market-selector-panel" style={{ marginBottom: 20 }}>
+          <div className="market-card market-select-card" style={{ marginBottom: 20 }}>
             {filteredSymbols.length ? (
-              filteredSymbols.map((item) => {
-                const checked = selectedSymbols.includes(item.symbol);
+              <div className="market-selector-list">
+                {filteredSymbols.map((item) => {
+                  const checked = selectedSymbols.includes(item.symbol);
+                  const isFavorite = favorites.includes(item.symbol);
 
-                return (
-                  <label key={item.symbol} className="selector-option">
-                    <div>
-                      <strong>{item.symbol}</strong>
-                      <div className="muted">
-                        {item.baseAsset || item.symbol.replace(quoteAsset, '')}
+                  return (
+                    <label
+                      key={item.symbol}
+                      className={`market-selector-option ${checked ? 'is-selected' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSelectedSymbol(item.symbol)}
+                      />
+                      <div className="market-selector-option__main">
+                        <strong>{item.symbol}</strong>
+                        <small>{item.baseAsset || item.symbol.replace(quoteAsset, '')}</small>
                       </div>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleSelectedSymbol(item.symbol)}
-                    />
-                  </label>
-                );
-              })
+                      <div className="market-selector-option__meta">
+                        {isFavorite ? 'Favorito' : checked ? 'Selecionado' : 'Disponível'}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
             ) : (
               <div className="callout callout--warning">
                 Nenhum par encontrado para o filtro informado.
@@ -733,7 +744,7 @@ export default function MercadoPage({ ctx = {} }) {
                       fontSize: 22,
                       lineHeight: 1,
                       cursor: 'pointer',
-                      color: item.isFavorite ? '#facc15' : 'rgba(148, 163, 184, 0.7)',
+                      color: item.isFavorite ? '#facc15' : '#ffffff',
                     }}
                   >
                     ★
