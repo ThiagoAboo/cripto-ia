@@ -203,6 +203,7 @@ export default function MercadoPage({ ctx = {} }) {
 
   const baseCurrency = ctx.baseCurrency || 'USDT';
   const intervalConfig = useMemo(() => getIntervalConfig(interval), [interval]);
+  const intervalLabel = useMemo(() => getIntervalLabel(interval), [interval]);
 
   const configSymbols = useMemo(
     () => uniqueSymbols(ctx?.draftConfig?.trading?.symbols),
